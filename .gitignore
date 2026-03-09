@@ -4,18 +4,40 @@ node_modules/
 # Build output
 out/
 dist/
-
-# Packaging
 *.vsix
+
+# Scripts (Local development)
+*.bat
+fetch_gist.js
+
+# Environment / Secret files
+.env
+.env.local
+.env.*.local
 
 # Test output
 .vscode-test/
+coverage/
 
 # OS files
 Thumbs.db
 .DS_Store
 
-# Editor
+# Editor / IDE
 .idea/
+.project
+.settings/
 *.swp
 *.swo
+
+# Log files
+*.log
+npm-debug.log*
+
+# Workspace settings (keep core config, ignore local state)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
