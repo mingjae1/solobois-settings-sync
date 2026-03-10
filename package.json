@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -185,7 +185,7 @@
         "soloboisSettingsSync.profiles": {
           "type": "object",
           "default": {},
-          "description": "Stored sync profiles (Gist IDs mapped to names)."
+          "description": "Stored sync profiles by name. Each profile stores gistId, ignoredSettings, and ignoredExtensions."
         },
         "soloboisSettingsSync.currentProfile": {
           "type": "string",

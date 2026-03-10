@@ -6,6 +6,46 @@ import * as path from 'path';
  * Manages reading/writing local VS Code settings files, keybindings, and extensions.
  */
 export class SettingsManager {
+    /**
+     * Read extension directory names marked for uninstall in `.obsolete`.
+     * VS Code/Antigravity writes this file before reload completes uninstall.
+     */
+    private getPendingUninstallExtensionDirs(): Set<string> {
+        const extensionsDir = this.getExtensionsDir();
+        if (!extensionsDir) {
+            return new Set();
+        }
+
+        const obsoletePath = path.join(extensionsDir, '.obsolete');
+        if (!fs.existsSync(obsoletePath)) {
+            return new Set();
+        }
+
+        try {
+            const raw = fs.readFileSync(obsoletePath, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') {
+                return new Set();
+            }
+            return new Set(Object.keys(parsed).map(key => key.toLowerCase()));
+        } catch {
+            console.warn('Soloboi\'s Settings Sync: Failed to parse .obsolete');
+            return new Set();
+        }
+    }
+
+    /**
+     * Get ignored extension IDs from configuration (normalized lowercase).
+     */
+    private getIgnoredExtensionIds(): Set<string> {
+        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const ignored = config.get<string[]>('ignoredExtensions', []);
+        return new Set(
+            ignored
+                .map(id => (id || '').trim().toLowerCase())
+                .filter(id => !!id)
+        );
+    }
 
     /**
      * Get the VS Code User settings directory based on the current OS.
@@ -238,8 +278,15 @@ export class SettingsManager {
      * Format: [{ "id": "publisher.name", "name": "...", "version": "...", "publisher": "...", "description": "..." }, ...]
      */
     readInstalledExtensions(): string {
+        const pendingUninstallDirs = this.getPendingUninstallExtensionDirs();
+        const ignoredIds = this.getIgnoredExtensionIds();
         const extensions = vscode.extensions.all
             .filter(ext => !ext.packageJSON?.isBuiltin) // skip built-in extensions
+            .filter(ext => !ignoredIds.has(ext.id.toLowerCase()))
+            .filter(ext => {
+                const dirName = path.basename(ext.extensionPath || '').toLowerCase();
+                return !dirName || !pendingUninstallDirs.has(dirName);
+            })
             .map(ext => ({
                 id: ext.id,
                 name: ext.packageJSON?.displayName || ext.packageJSON?.name || '',
@@ -538,13 +585,15 @@ export class SettingsManager {
             return 0;
         }
 
+        const ignoredIds = this.getIgnoredExtensionIds();
         const installed = new Set(
             vscode.extensions.all.map(ext => ext.id.toLowerCase())
         );
 
         let count = 0;
         for (const ext of remoteList) {
-            if (ext.id && !installed.has(ext.id.toLowerCase())) {
+            const id = (ext.id || '').toLowerCase();
+            if (id && !ignoredIds.has(id) && !installed.has(id)) {
                 try {
                     await vscode.commands.executeCommand(
                         'workbench.extensions.installExtension',
@@ -577,6 +626,7 @@ export class SettingsManager {
             return 0;
         }
 
+        const ignoredIds = this.getIgnoredExtensionIds();
         const remoteIds = new Set(remoteList.map(ext => ext.id.toLowerCase()));
         let count = 0;
 
@@ -586,6 +636,8 @@ export class SettingsManager {
             const id = ext.id.toLowerCase();
             // Do not uninstall ourselves
             if (id === 'soloboi.solobois-settings-sync') continue;
+            // Ignore list means "do not manage"
+            if (ignoredIds.has(id)) continue;
 
             if (!remoteIds.has(id)) {
                 try {

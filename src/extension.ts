@@ -9,6 +9,7 @@ import { SoloboiSyncTreeProvider } from './treeProvider';
 const GIST_DESCRIPTION_PREFIX = 'Soloboi\'s Settings Sync — ';
 const GIST_DEFAULT_DESCRIPTION = 'Soloboi\'s Settings Sync — VS Code Settings'; // Used for initial creation
 const LAST_SYNC_KEY = 'soloboisSettingsSync.lastSyncTimestamp';
+const DEFAULT_PROFILE_NAME = 'Default';
 
 let authManager: AuthManager;
 let gistService: GistService;
@@ -21,6 +22,156 @@ let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let lastSyncTime: string | null = null;
 
+type SyncProfile = {
+    gistId: string;
+    ignoredSettings: string[];
+    ignoredExtensions: string[];
+};
+
+function normalizeIgnoredSettings(keys: string[]): string[] {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+
+    for (const raw of keys) {
+        const key = (raw || '').trim();
+        if (!key || seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        normalized.push(key);
+    }
+
+    return normalized;
+}
+
+function normalizeExtensionIds(ids: string[]): string[] {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+
+    for (const raw of ids) {
+        const id = (raw || '').trim().toLowerCase();
+        if (!id || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        normalized.push(id);
+    }
+
+    return normalized;
+}
+
+function getCurrentProfileName(config: vscode.WorkspaceConfiguration): string {
+    const raw = (config.get<string>('currentProfile', DEFAULT_PROFILE_NAME) || '').trim();
+    return raw || DEFAULT_PROFILE_NAME;
+}
+
+function getCurrentGlobalSyncState(config: vscode.WorkspaceConfiguration): SyncProfile {
+    return {
+        gistId: (config.get<string>('gistId', '') || '').trim(),
+        ignoredSettings: normalizeIgnoredSettings(config.get<string[]>('ignoredSettings', [])),
+        ignoredExtensions: normalizeExtensionIds(config.get<string[]>('ignoredExtensions', []))
+    };
+}
+
+function normalizeProfiles(raw: unknown): Record<string, SyncProfile> {
+    const profiles: Record<string, SyncProfile> = {};
+    if (!raw || typeof raw !== 'object') {
+        return profiles;
+    }
+
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        const trimmedKey = (key || '').trim();
+        if (!trimmedKey) {
+            continue;
+        }
+
+        // Legacy format support: { "<gistId>": "<profileName>" }
+        if (typeof value === 'string') {
+            const profileName = (value || '').trim() || trimmedKey;
+            profiles[profileName] = {
+                gistId: trimmedKey,
+                ignoredSettings: [],
+                ignoredExtensions: []
+            };
+            continue;
+        }
+
+        if (!value || typeof value !== 'object') {
+            continue;
+        }
+
+        const profile = value as {
+            gistId?: unknown;
+            ignoredSettings?: unknown;
+            ignoredExtensions?: unknown;
+        };
+
+        profiles[trimmedKey] = {
+            gistId: typeof profile.gistId === 'string' ? profile.gistId.trim() : '',
+            ignoredSettings: normalizeIgnoredSettings(Array.isArray(profile.ignoredSettings) ? profile.ignoredSettings as string[] : []),
+            ignoredExtensions: normalizeExtensionIds(Array.isArray(profile.ignoredExtensions) ? profile.ignoredExtensions as string[] : [])
+        };
+    }
+
+    return profiles;
+}
+
+async function saveCurrentProfileFromGlobal(config?: vscode.WorkspaceConfiguration): Promise<void> {
+    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const profileName = getCurrentProfileName(cfg);
+    const profiles = normalizeProfiles(cfg.get<Record<string, unknown>>('profiles', {}));
+    profiles[profileName] = getCurrentGlobalSyncState(cfg);
+    await cfg.update('profiles', profiles, vscode.ConfigurationTarget.Global);
+}
+
+async function applyProfileToGlobalSettings(profileName: string, config?: vscode.WorkspaceConfiguration): Promise<void> {
+    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const profiles = normalizeProfiles(cfg.get<Record<string, unknown>>('profiles', {}));
+    const profile = profiles[profileName];
+    if (!profile) {
+        return;
+    }
+
+    await cfg.update('gistId', profile.gistId, vscode.ConfigurationTarget.Global);
+    await cfg.update('ignoredSettings', profile.ignoredSettings, vscode.ConfigurationTarget.Global);
+    await cfg.update('ignoredExtensions', profile.ignoredExtensions, vscode.ConfigurationTarget.Global);
+}
+
+async function initializeProfiles(): Promise<void> {
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const currentProfile = getCurrentProfileName(config);
+    const profiles = normalizeProfiles(config.get<Record<string, unknown>>('profiles', {}));
+
+    if (!profiles[currentProfile]) {
+        profiles[currentProfile] = getCurrentGlobalSyncState(config);
+    }
+
+    await config.update('profiles', profiles, vscode.ConfigurationTarget.Global);
+    await config.update('currentProfile', currentProfile, vscode.ConfigurationTarget.Global);
+    await applyProfileToGlobalSettings(currentProfile, config);
+}
+
+function getInstalledUserExtensionIds(): Set<string> {
+    return new Set(
+        vscode.extensions.all
+            .filter(ext => !ext.packageJSON?.isBuiltin)
+            .map(ext => ext.id.toLowerCase())
+    );
+}
+
+async function cleanupIgnoredExtensions(): Promise<void> {
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const current = config.get<string[]>('ignoredExtensions', []);
+    const normalized = normalizeExtensionIds(current);
+    const installed = getInstalledUserExtensionIds();
+    const cleaned = normalized.filter(id => installed.has(id));
+
+    if (JSON.stringify(current) !== JSON.stringify(cleaned)) {
+        await config.update('ignoredExtensions', cleaned, vscode.ConfigurationTarget.Global);
+        await saveCurrentProfileFromGlobal(config);
+    }
+}
+
 // ─── Activation ──────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -30,6 +181,7 @@ export async function activate(context: vscode.ExtensionContext) {
     authManager = new AuthManager(context);
     gistService = new GistService();
     settingsManager = new SettingsManager();
+    await initializeProfiles();
 
     // Initialize UI
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -46,6 +198,39 @@ export async function activate(context: vscode.ExtensionContext) {
     const treeProvider = new SoloboiSyncTreeProvider(authManager, gistService);
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('soloboisSettingsSync.treeView', treeProvider)
+    );
+
+    // Keep ignoredExtensions clean when extensions are removed.
+    await cleanupIgnoredExtensions();
+    context.subscriptions.push(
+        vscode.extensions.onDidChange(() => {
+            void cleanupIgnoredExtensions();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(async (event) => {
+            const profileChanged = event.affectsConfiguration('soloboisSettingsSync.currentProfile');
+            const managedValueChanged =
+                event.affectsConfiguration('soloboisSettingsSync.gistId') ||
+                event.affectsConfiguration('soloboisSettingsSync.ignoredSettings') ||
+                event.affectsConfiguration('soloboisSettingsSync.ignoredExtensions');
+
+            if (profileChanged) {
+                const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                const profileName = getCurrentProfileName(config);
+                await applyProfileToGlobalSettings(profileName, config);
+                await cleanupIgnoredExtensions();
+                await saveCurrentProfileFromGlobal(config);
+                treeProvider.refresh();
+                return;
+            }
+
+            if (managedValueChanged) {
+                await saveCurrentProfileFromGlobal();
+                treeProvider.refresh();
+            }
+        })
     );
 
     // ── Register Commands ────────────────────────────────────────────
@@ -92,6 +277,12 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.switchProfile', async () => {
+            await switchProfile(treeProvider);
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.setGistId', async () => {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
             const currentId = config.get<string>('gistId') || '';
@@ -109,6 +300,7 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             if (input !== undefined) {
                 await config.update('gistId', input, vscode.ConfigurationTarget.Global);
+                await saveCurrentProfileFromGlobal(config);
                 if (input) {
                     vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID가 설정되었습니다. (${input.substring(0, 8)}...)`);
                 } else {
@@ -123,6 +315,7 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('soloboisSettingsSync.selectGist', async (gistId: string) => {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
             await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+            await saveCurrentProfileFromGlobal(config);
             vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID가 설정되었습니다. (${gistId.substring(0, 8)}...)`);
             treeProvider.refresh();
         })
@@ -131,14 +324,17 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredExtensions', async () => {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-            const currentlyIgnored = new Set(config.get<string[]>('ignoredExtensions', []));
+            await cleanupIgnoredExtensions();
+            const currentlyIgnored = new Set(
+                normalizeExtensionIds(config.get<string[]>('ignoredExtensions', []))
+            );
             
             const extensions = vscode.extensions.all
                 .filter(ext => !ext.packageJSON?.isBuiltin && ext.id !== 'soloboi.solobois-settings-sync')
                 .map(ext => ({
                     label: ext.packageJSON?.displayName || ext.packageJSON?.name || ext.id,
                     description: ext.id,
-                    picked: currentlyIgnored.has(ext.id)
+                    picked: currentlyIgnored.has(ext.id.toLowerCase())
                 }))
                 .sort((a, b) => a.label.localeCompare(b.label));
 
@@ -149,8 +345,9 @@ export async function activate(context: vscode.ExtensionContext) {
             });
 
             if (selected !== undefined) {
-                const newIgnored = selected.map(item => item.description);
+                const newIgnored = normalizeExtensionIds(selected.map(item => item.description || ''));
                 await config.update('ignoredExtensions', newIgnored, vscode.ConfigurationTarget.Global);
+                await saveCurrentProfileFromGlobal(config);
                 vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 익스텐션 목록이 업데이트되었습니다.');
                 treeProvider.refresh();
             }
@@ -225,6 +422,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
 
                 await config.update('ignoredSettings', Array.from(finalIgnored), vscode.ConfigurationTarget.Global);
+                await saveCurrentProfileFromGlobal(config);
                 vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 설정 목록이 업데이트되었습니다.');
                 treeProvider.refresh();
             }
@@ -695,6 +893,77 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
+async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<void> {
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    await saveCurrentProfileFromGlobal(config);
+
+    const profiles = normalizeProfiles(config.get<Record<string, unknown>>('profiles', {}));
+    const currentProfile = getCurrentProfileName(config);
+    const profileNames = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
+
+    const items: (vscode.QuickPickItem & { profileName?: string; createNew?: boolean })[] = profileNames.map(name => ({
+        label: name === currentProfile ? `$(check) ${name}` : name,
+        description: name === currentProfile ? 'Current profile' : undefined,
+        profileName: name
+    }));
+
+    items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+    items.push({
+        label: '$(add) Create New Profile',
+        description: 'Create from current gist/ignore settings.',
+        createNew: true
+    });
+
+    const selected = await vscode.window.showQuickPick(items, {
+        title: 'Switch Sync Profile',
+        placeHolder: 'Select a profile or create a new one'
+    });
+
+    if (!selected) {
+        return;
+    }
+
+    let nextProfileName = selected.profileName || '';
+    const nextProfiles = { ...profiles };
+
+    if (selected.createNew) {
+        const input = await vscode.window.showInputBox({
+            title: 'New Profile Name',
+            prompt: 'Enter a profile name',
+            validateInput: (value) => {
+                const name = value.trim();
+                if (!name) {
+                    return 'Profile name is required.';
+                }
+                if (nextProfiles[name]) {
+                    return 'A profile with this name already exists.';
+                }
+                return null;
+            }
+        });
+
+        if (!input) {
+            return;
+        }
+
+        nextProfileName = input.trim();
+        nextProfiles[nextProfileName] = getCurrentGlobalSyncState(config);
+    }
+
+    if (!nextProfileName) {
+        return;
+    }
+
+    await config.update('profiles', nextProfiles, vscode.ConfigurationTarget.Global);
+    await config.update('currentProfile', nextProfileName, vscode.ConfigurationTarget.Global);
+    await applyProfileToGlobalSettings(nextProfileName, config);
+    await cleanupIgnoredExtensions();
+    await saveCurrentProfileFromGlobal(config);
+
+    treeProvider.refresh();
+    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Switched to profile "${nextProfileName}".`);
+}
+
 async function selectOrCreateGist(
     context: vscode.ExtensionContext, 
     token: string, 
@@ -759,11 +1028,13 @@ async function selectOrCreateGist(
         const gistId = await createNewGist(token, files, silent);
         if (gistId) {
             await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+            await saveCurrentProfileFromGlobal(config);
         }
         return gistId;
     } else {
         const gistId = (selected as any).id;
         await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+        await saveCurrentProfileFromGlobal(config);
         vscode.window.showInformationMessage(`Soloboi\'s Settings Sync: 기존 Gist(${gistId})가 선택되었습니다.`);
         return gistId;
     }
