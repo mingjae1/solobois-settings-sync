@@ -5,9 +5,11 @@ import { AuthManager } from './auth';
 import { GistService } from './gistService';
 import { SettingsManager } from './settingsManager';
 import { SoloboiSyncTreeProvider } from './treeProvider';
+import { detectPlatform, Platform } from './platformDetector';
+import { checkMarketplaceForPlatform, ExtensionAvailability } from './marketplaceChecker';
 
-const GIST_DESCRIPTION_PREFIX = 'Soloboi\'s Settings Sync — ';
-const GIST_DEFAULT_DESCRIPTION = 'Soloboi\'s Settings Sync — VS Code Settings'; // Used for initial creation
+const GIST_DESCRIPTION_PREFIX = "Soloboi's Settings Sync - ";
+const GIST_DEFAULT_DESCRIPTION = "Soloboi's Settings Sync - VS Code Settings"; // Used for initial creation
 const LAST_SYNC_KEY = 'soloboisSettingsSync.lastSyncTimestamp';
 const DEFAULT_PROFILE_NAME = 'Default';
 
@@ -21,6 +23,12 @@ let isDownloading = false;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let lastSyncTime: string | null = null;
+let currentPlatform: Platform = 'unknown';
+
+type OmissionSummary = {
+    skippedSettingKeys: string[];
+    skippedAntigravityFiles: string[];
+};
 
 type SyncProfile = {
     gistId: string;
@@ -172,7 +180,165 @@ async function cleanupIgnoredExtensions(): Promise<void> {
     }
 }
 
-// ─── Activation ──────────────────────────────────────────────────────
+type SyncOptions = {
+    syncSettings: boolean;
+    syncExtensions: boolean;
+    syncKeybindings: boolean;
+    syncSnippets: boolean;
+    syncAntigravityConfig: boolean;
+};
+
+function isAntigravityPlatform(platform: Platform): boolean {
+    return platform === 'antigravity';
+}
+
+function getSyncOptions(config?: vscode.WorkspaceConfiguration): SyncOptions {
+    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const inferredDefault = isAntigravityPlatform(currentPlatform);
+    const inspected = cfg.inspect<boolean>('syncAntigravityConfig');
+    const hasUserValue =
+        inspected?.globalValue !== undefined ||
+        inspected?.workspaceValue !== undefined ||
+        inspected?.workspaceFolderValue !== undefined;
+
+    const syncAntigravityConfig = hasUserValue
+        ? cfg.get<boolean>('syncAntigravityConfig', inferredDefault)
+        : inferredDefault;
+
+    return {
+        syncSettings: cfg.get<boolean>('syncSettings', true),
+        syncExtensions: cfg.get<boolean>('syncExtensions', true),
+        syncKeybindings: cfg.get<boolean>('syncKeybindings', true),
+        syncSnippets: cfg.get<boolean>('syncSnippets', true),
+        syncAntigravityConfig
+    };
+}
+
+function parseJsonc(content: string): any | null {
+    try {
+        let isInsideString = false;
+        let isInsideSingleLineComment = false;
+        let isInsideMultiLineComment = false;
+        let cleaned = '';
+
+        for (let i = 0; i < content.length; i++) {
+            const char = content[i];
+            const nextChar = content[i + 1];
+
+            if (isInsideSingleLineComment) {
+                if (char === '\n') {
+                    isInsideSingleLineComment = false;
+                    cleaned += char;
+                }
+                continue;
+            }
+
+            if (isInsideMultiLineComment) {
+                if (char === '*' && nextChar === '/') {
+                    isInsideMultiLineComment = false;
+                    i++;
+                }
+                continue;
+            }
+
+            if (isInsideString) {
+                cleaned += char;
+                if (char === '"' && content[i - 1] !== '\\') {
+                    isInsideString = false;
+                }
+                continue;
+            }
+
+            if (char === '"') {
+                isInsideString = true;
+                cleaned += char;
+                continue;
+            }
+
+            if (char === '/' && nextChar === '/') {
+                isInsideSingleLineComment = true;
+                i++;
+                continue;
+            }
+
+            if (char === '/' && nextChar === '*') {
+                isInsideMultiLineComment = true;
+                i++;
+                continue;
+            }
+
+            cleaned += char;
+        }
+
+        return JSON.parse(cleaned.replace(/,\s*([\]}])/g, '$1'));
+    } catch {
+        return null;
+    }
+}
+
+function filterSettingsByPlatform(settingsText: string, platform: Platform): { content: string; skippedKeys: string[] } {
+    if (isAntigravityPlatform(platform)) {
+        return { content: settingsText, skippedKeys: [] };
+    }
+
+    const parsed = parseJsonc(settingsText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { content: settingsText, skippedKeys: [] };
+    }
+
+    const obj = { ...(parsed as Record<string, unknown>) };
+    const skippedKeys = Object.keys(obj).filter(key => key.toLowerCase().startsWith('antigravity.'));
+    for (const key of skippedKeys) {
+        delete obj[key];
+    }
+
+    return {
+        content: JSON.stringify(obj, null, 4),
+        skippedKeys
+    };
+}
+
+async function filterExtensionsByMarketplace(
+    extensionsJson: string
+): Promise<{ filteredJson: string; unavailableIds: string[]; unknownIds: string[] }> {
+    let remoteList: Array<{ id?: string; [k: string]: any }>;
+    try {
+        remoteList = JSON.parse(extensionsJson);
+    } catch {
+        return { filteredJson: extensionsJson, unavailableIds: [], unknownIds: [] };
+    }
+
+    const ids = remoteList
+        .map(ext => (ext.id || '').trim().toLowerCase())
+        .filter(id => !!id);
+    const availability = await checkMarketplaceForPlatform(ids, currentPlatform);
+
+    const unavailableIds: string[] = [];
+    const unknownIds: string[] = [];
+    const filtered = remoteList.filter(ext => {
+        const id = (ext.id || '').trim().toLowerCase();
+        if (!id) {
+            return true;
+        }
+        const state: ExtensionAvailability = availability.get(id) ?? 'unknown';
+        if (state === 'unavailable') {
+            unavailableIds.push(id);
+            return false;
+        }
+        if (state === 'unknown') {
+            unknownIds.push(id);
+        }
+        return true;
+    });
+
+    return {
+        filteredJson: JSON.stringify(filtered, null, 2),
+        unavailableIds,
+        unknownIds
+    };
+}
+
+// ??? Activation ??????????????????????????????????????????????????????
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Soloboi\'s Settings Sync is now active.');
@@ -181,6 +347,8 @@ export async function activate(context: vscode.ExtensionContext) {
     authManager = new AuthManager(context);
     gistService = new GistService();
     settingsManager = new SettingsManager();
+    currentPlatform = detectPlatform();
+    console.log(`Soloboi's Settings Sync: detected platform = ${currentPlatform} (appName: ${vscode.env.appName})`);
     await initializeProfiles();
 
     // Initialize UI
@@ -233,7 +401,7 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // ── Register Commands ────────────────────────────────────────────
+    // ?? Register Commands ????????????????????????????????????????????
 
     context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.login', async () => {
@@ -287,13 +455,13 @@ export async function activate(context: vscode.ExtensionContext) {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
             const currentId = config.get<string>('gistId') || '';
             const input = await vscode.window.showInputBox({
-                title: 'Gist ID 설정',
-                prompt: '동기화에 사용할 GitHub Gist ID를 입력하세요.',
+                title: 'Set Gist ID',
+                prompt: 'Enter the GitHub Gist ID used for sync.',
                 value: currentId,
                 placeHolder: 'e.g. abc123def456...',
                 validateInput: (value) => {
                     if (value && !/^[a-f0-9]+$/i.test(value)) {
-                        return 'Gist ID는 16진수 문자열이어야 합니다.';
+                        return 'Gist ID must be a hexadecimal string.';
                     }
                     return null;
                 }
@@ -302,9 +470,9 @@ export async function activate(context: vscode.ExtensionContext) {
                 await config.update('gistId', input, vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
                 if (input) {
-                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID가 설정되었습니다. (${input.substring(0, 8)}...)`);
+                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${input.substring(0, 8)}...)`);
                 } else {
-                    vscode.window.showInformationMessage('Soloboi\'s Settings Sync: Gist ID가 초기화되었습니다.');
+                    vscode.window.showInformationMessage("Soloboi's Settings Sync: Gist ID cleared.");
                 }
                 treeProvider.refresh();
             }
@@ -316,7 +484,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
             await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
             await saveCurrentProfileFromGlobal(config);
-            vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID가 설정되었습니다. (${gistId.substring(0, 8)}...)`);
+            vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${gistId.substring(0, 8)}...)`);
             treeProvider.refresh();
         })
     );
@@ -328,7 +496,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const currentlyIgnored = new Set(
                 normalizeExtensionIds(config.get<string[]>('ignoredExtensions', []))
             );
-            
+
             const extensions = vscode.extensions.all
                 .filter(ext => !ext.packageJSON?.isBuiltin && ext.id !== 'soloboi.solobois-settings-sync')
                 .map(ext => ({
@@ -340,15 +508,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const selected = await vscode.window.showQuickPick(extensions, {
                 canPickMany: true,
-                placeHolder: '동기화에서 제외할 익스텐션을 선택하세요.',
-                title: '익스텐션 동기화 제외 설정'
+                placeHolder: 'Select extensions to exclude from sync.',
+                title: 'Manage Ignored Extensions'
             });
 
             if (selected !== undefined) {
                 const newIgnored = normalizeExtensionIds(selected.map(item => item.description || ''));
                 await config.update('ignoredExtensions', newIgnored, vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
-                vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 익스텐션 목록이 업데이트되었습니다.');
+                vscode.window.showInformationMessage("Soloboi's Settings Sync: Ignored extensions updated.");
                 treeProvider.refresh();
             }
         })
@@ -358,20 +526,20 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredSettings', async () => {
             const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
             const currentlyIgnored = new Set(config.get<string[]>('ignoredSettings', []));
-            
+
             const localObj = settingsManager.getLocalSettingsObject();
             const keys = new Set([...Object.keys(localObj), ...currentlyIgnored]);
-            
+
             const sortedKeys = Array.from(keys).sort();
             const items: (vscode.QuickPickItem & { isPattern?: boolean })[] = [
                 {
-                    label: '$(add) 직접 패턴 입력...',
-                    description: '직접 제외할 설정 키 또는 와일드카드 패턴(* )을 입력합니다.',
+                    label: '$(add) Enter custom pattern...',
+                    description: 'Enter a specific setting key or wildcard pattern (*).',
                     alwaysShow: true,
                     isPattern: true
                 },
                 {
-                    label: '현재 설정 및 제외 목록',
+                    label: 'Current settings and ignored list',
                     kind: vscode.QuickPickItemKind.Separator
                 }
             ];
@@ -394,8 +562,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const selected = await vscode.window.showQuickPick(items, {
                 canPickMany: true,
-                placeHolder: '동기화에서 제외할 설정 키를 선택하거나 패턴을 추가하세요.',
-                title: '설정 동기화 제외 관리'
+                placeHolder: 'Select settings to ignore or add a custom pattern.',
+                title: 'Manage Ignored Settings'
             });
 
             if (selected !== undefined) {
@@ -412,8 +580,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 if (needsManualInput) {
                     const customPattern = await vscode.window.showInputBox({
-                        title: '제외 패턴 추가',
-                        prompt: '제외할 설정 키 또는 패턴을 입력하세요 (예: terminal.integrated.*)',
+                        title: 'Add Ignore Pattern',
+                        prompt: 'Enter a setting key or wildcard pattern to ignore (e.g. terminal.integrated.*)',
                         placeHolder: 'e.g. editor.fontSize'
                     });
                     if (customPattern) {
@@ -423,13 +591,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 await config.update('ignoredSettings', Array.from(finalIgnored), vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
-                vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 설정 목록이 업데이트되었습니다.');
+                vscode.window.showInformationMessage("Soloboi's Settings Sync: Ignored settings updated.");
                 treeProvider.refresh();
             }
         })
     );
 
-    // ── Setup Wizard ─────────────────────────────────────────────────
+    // ?? Setup Wizard ?????????????????????????????????????????????????
 
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
     const gistId = config.get<string>('gistId');
@@ -438,19 +606,19 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!gistId && !prompted) {
         // Welcome Wizard Prompt
         vscode.window.showInformationMessage(
-            '🌟 Soloboi\'s Settings Sync에 오신 것을 환영합니다! 기존 기기의 설정을 연동하거나 지금 기기의 설정을 백업해 보세요.',
-            '설정 시작하기', '나중에'
+            'Welcome to Soloboi\'s Settings Sync. Start setup to download from an existing Gist, or skip for now.',
+            'Start Setup', 'Skip'
         ).then(async (selection) => {
-            if (selection === '설정 시작하기') {
+            if (selection === 'Start Setup') {
                 context.globalState.update('setupPrompted', true);
                 vscode.commands.executeCommand('soloboisSettingsSync.downloadNow');
-            } else if (selection === '나중에') {
+            } else if (selection === 'Skip') {
                 context.globalState.update('setupPrompted', true);
             }
         });
     }
 
-    // ── Startup Auto-Sync ────────────────────────────────────────────
+    // ?? Startup Auto-Sync ????????????????????????????????????????????
 
     if (config.get<boolean>('autoSyncOnStartup')) {
         // Delay slightly to let VS Code finish initialising
@@ -462,12 +630,12 @@ export async function activate(context: vscode.ExtensionContext) {
         }, 3000);
     }
 
-    // ── File Watchers (auto-upload on change) ────────────────────────
+    // ?? File Watchers (auto-upload on change) ????????????????????????
 
     setupFileWatchers(context);
 }
 
-// ─── Deactivation ────────────────────────────────────────────────────
+// ??? Deactivation ????????????????????????????????????????????????????
 
 export function deactivate(): Thenable<void> | undefined {
     // Upload current settings on exit
@@ -494,7 +662,7 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
 }
 
-// ─── Upload Settings ─────────────────────────────────────────────────
+// ??? Upload Settings ?????????????????????????????????????????????????
 
 async function uploadSettings(
     context: vscode.ExtensionContext,
@@ -508,7 +676,7 @@ async function uploadSettings(
         const token = await authManager.getToken();
         if (!token) {
             if (!silent) {
-                vscode.window.showWarningMessage('Soloboi\'s Settings Sync: GitHub에 로그인해주세요.');
+                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
             }
             return;
         }
@@ -516,7 +684,7 @@ async function uploadSettings(
         const files = buildGistFiles();
         if (!files) {
             if (!silent) {
-                vscode.window.showErrorMessage('Soloboi\'s Settings Sync: 설정 파일을 읽을 수 없습니다.');
+                vscode.window.showErrorMessage("Soloboi's Settings Sync: No sync files were generated.");
             }
             return;
         }
@@ -526,30 +694,28 @@ async function uploadSettings(
 
         if (!gistId) {
             const newId = await selectOrCreateGist(context, token, files, silent);
-            if (!newId) return; // User cancelled or failed
+            if (!newId) return;
             gistId = newId;
         }
 
-        // Update existing Gist (PATCH)
         const dateStr = new Date().toLocaleString();
         const hostname = os.hostname();
         const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
 
         await gistService.updateGist(gistId, files, token, description);
         if (!silent) {
-            vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 설정이 Gist에 업로드되었습니다.');
+            vscode.window.showInformationMessage("Soloboi's Settings Sync: Uploaded to Gist.");
         }
 
-        // Store last sync timestamp
         const now = new Date().toISOString();
         context.globalState.update(LAST_SYNC_KEY, now);
         lastSyncTime = now;
         updateStatusBar('idle');
 
     } catch (err: any) {
-        console.error('Soloboi\'s Settings Sync upload error:', err);
+        console.error("Soloboi's Settings Sync upload error:", err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi\'s Settings Sync: 업로드 실패 — ${err.message}`);
+            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Upload failed: ${err.message}`);
         }
         updateStatusBar('error');
     } finally {
@@ -557,32 +723,41 @@ async function uploadSettings(
     }
 }
 
-// ─── Download Settings ───────────────────────────────────────────────
+// ??? Download Settings ???????????????????????????????????????????????
 
 async function downloadSettings(
     context: vscode.ExtensionContext,
-    silent: boolean = false
-): Promise<void> {
+    silent: boolean = false,
+    forceOmissionNotice: boolean = false
+): Promise<boolean> {
+    if (isDownloading) {
+        return false;
+    }
+    isDownloading = true;
     updateStatusBar('downloading');
 
     try {
         const token = await authManager.getToken();
         if (!token) {
             if (!silent) {
-                vscode.window.showWarningMessage('Soloboi\'s Settings Sync: GitHub에 로그인해주세요.');
+                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
             }
-            return;
+            return false;
         }
 
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
         let gistId = config.get<string>('gistId');
 
         if (!gistId) {
-            if (silent) return; // Don't prompt in silent mode on startup if no ID
-            
+            if (silent) {
+                return false;
+            }
+
             const files = buildGistFiles();
             const newId = await selectOrCreateGist(context, token, files, silent);
-            if (!newId) return; // User cancelled or failed
+            if (!newId) {
+                return false;
+            }
             gistId = newId;
         }
 
@@ -591,35 +766,43 @@ async function downloadSettings(
             throw new Error('Invalid Gist data');
         }
 
-        await applyGistData(gistData, context, silent);
+        await applyGistData(gistData, context, silent, forceOmissionNotice);
+        return true;
 
     } catch (err: any) {
-        console.error('Soloboi\'s Settings Sync download error:', err);
+        console.error("Soloboi's Settings Sync download error:", err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi\'s Settings Sync: 다운로드 실패 — ${err.message}`);
+            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Download failed: ${err.message}`);
         }
         updateStatusBar('error');
+        return false;
+    } finally {
+        isDownloading = false;
     }
 }
 
-// ─── Full Sync (Download then Upload) ────────────────────────────────
+// ??? Full Sync (Download then Upload) ????????????????????????????????
 
 async function fullSync(context: vscode.ExtensionContext): Promise<void> {
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
     const gistId = config.get<string>('gistId');
 
     if (gistId) {
-        // Download first, then upload (so local merges are reflected in Gist)
-        await downloadSettings(context, true);
+        const downloaded = await downloadSettings(context, true, true);
+        if (!downloaded) {
+            vscode.window.showWarningMessage(
+                "Soloboi's Settings Sync: Download step failed. Upload skipped to avoid overwriting remote settings."
+            );
+            return;
+        }
         await uploadSettings(context, false);
-        vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 동기화 완료!');
+        vscode.window.showInformationMessage("Soloboi's Settings Sync: Sync complete!");
     } else {
-        // No Gist yet — just upload to create one
         await uploadSettings(context, false);
     }
 }
 
-// ─── File Watchers ───────────────────────────────────────────────────
+// ??? File Watchers ???????????????????????????????????????????????????
 
 function setupFileWatchers(context: vscode.ExtensionContext): void {
     const settingsDir = settingsManager.getUserSettingsDir();
@@ -691,13 +874,13 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
     }
 }
 
-// ─── Apply Gist Data ─────────────────────────────────────────────────
+// ??? Apply Gist Data ?????????????????????????????????????????????????
 
-// ── Diff Helpers ───────────────────────────────────────────────────
+// ?? Diff Helpers ???????????????????????????????????????????????????
 
 function generateSettingsDiff(oldText: string | null, newText: string): string[] {
     const diffs: string[] = [];
-    if (!oldText) return ['+ (기존 파일 없음, 전체 새로 쓰기)'];
+    if (!oldText) return ['+ (local file missing, full write)'];
     try {
         const stripJsonc = (str: string) => {
             let isInsideString = false;
@@ -729,19 +912,19 @@ function generateSettingsDiff(oldText: string | null, newText: string): string[]
         };
         const oldObj = JSON.parse(stripJsonc(oldText)) || {};
         const newObj = JSON.parse(stripJsonc(newText)) || {};
-        
+
         for (const key of Object.keys(newObj)) {
             if (!(key in oldObj)) {
-                diffs.push(`+ 새로 추가됨: ${key} (${JSON.stringify(newObj[key])})`);
+                diffs.push(`+ added: ${key} (${JSON.stringify(newObj[key])})`);
             } else if (JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])) {
-                diffs.push(`~ 변경됨: ${key} (${JSON.stringify(oldObj[key])} -> ${JSON.stringify(newObj[key])})`);
+                diffs.push(`~ changed: ${key} (${JSON.stringify(oldObj[key])} -> ${JSON.stringify(newObj[key])})`);
             }
         }
         for (const key of Object.keys(oldObj)) {
-            if (!(key in newObj)) diffs.push(`- 삭제됨: ${key}`);
+            if (!(key in newObj)) diffs.push(`- removed: ${key}`);
         }
-    } catch(e) {
-        if (oldText.trim() !== newText.trim()) diffs.push('~ (텍스트 변경됨)');
+    } catch (e) {
+        if (oldText.trim() !== newText.trim()) diffs.push('~ text changed');
     }
     return diffs;
 }
@@ -753,74 +936,338 @@ function generateExtensionsDiff(oldListStr: string | null, newListStr: string): 
         const newList = JSON.parse(newListStr);
         const oldIds = new Set(oldList.map((e: any) => e.id));
         const newIds = new Set(newList.map((e: any) => e.id));
-        
+
         for (const ext of newList) {
-            if (!oldIds.has(ext.id)) diffs.push(`+ 설치 대상: ${ext.name || ext.id}`);
+            if (!oldIds.has(ext.id)) diffs.push(`+ install target: ${ext.name || ext.id}`);
         }
         for (const ext of oldList) {
-            if (!newIds.has(ext.id)) diffs.push(`- 삭제 대상: ${ext.name || ext.id}`);
+            if (!newIds.has(ext.id)) diffs.push(`- remove target: ${ext.name || ext.id}`);
         }
-    } catch(e) {}
+    } catch (e) { }
     return diffs;
 }
 
-// ── Apply Gist Data ──────────────────────────────────────────────
+// ?? Apply Gist Data ??????????????????????????????????????????????
+
+type RemoteExtensionEntry = {
+    id: string;
+    name?: string;
+};
+
+function parseExtensionList(content: string): RemoteExtensionEntry[] {
+    try {
+        const parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+
+        return parsed
+            .filter(item => item && typeof item === 'object' && typeof item.id === 'string')
+            .map(item => ({
+                id: item.id.trim(),
+                name: typeof item.name === 'string' ? item.name.trim() : undefined
+            }))
+            .filter(item => !!item.id);
+    } catch {
+        return [];
+    }
+}
+
+function extensionLabel(entry: RemoteExtensionEntry): string {
+    const id = entry.id.trim();
+    const name = (entry.name || '').trim();
+    if (!name || name.toLowerCase() === id.toLowerCase()) {
+        return id;
+    }
+    return `${name} (${id})`;
+}
+
+function hasContentChanged(oldContent: string | null, newContent: string): boolean {
+    const before = (oldContent || '').trim();
+    const after = (newContent || '').trim();
+    return before !== after;
+}
+
+function uniqueList(values: string[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const value of values) {
+        if (!value || seen.has(value)) {
+            continue;
+        }
+        seen.add(value);
+        result.push(value);
+    }
+    return result;
+}
 
 async function applyGistData(
     gistData: any,
     context: vscode.ExtensionContext,
-    silent: boolean = false
+    silent: boolean = false,
+    forceOmissionNotice: boolean = false
 ): Promise<void> {
     settingsManager.backupCurrentSettings();
     outputChannel.clear();
-    outputChannel.appendLine('=== Soloboi\'s Settings Sync 다운로드 결과 ===\n');
+    outputChannel.appendLine('=== Soloboi\'s Settings Sync download report ===');
+    outputChannel.appendLine('');
+
+    const fileMap = (gistData?.files || {}) as Record<string, { content?: string }>;
+    const syncOptions = getSyncOptions();
+    const antigravityMode = isAntigravityPlatform(currentPlatform);
+    const ignoredExtensionIds = new Set(
+        normalizeExtensionIds(
+            vscode.workspace.getConfiguration('soloboisSettingsSync').get<string[]>('ignoredExtensions', [])
+        )
+    );
+
+    outputChannel.appendLine(`[Platform] ${currentPlatform}`);
+    outputChannel.appendLine(
+        antigravityMode
+            ? '  - Native mode (no platform filtering).'
+            : '  - Cross-platform mode (antigravity.* settings and Antigravity-only files are filtered).'
+    );
+    outputChannel.appendLine('');
+
     let hasChanges = false;
-
-    if (gistData.files['settings.json']) {
-        const newText = gistData.files['settings.json'].content;
-        const oldText = settingsManager.readLocalSettings();
-        const diffs = generateSettingsDiff(oldText, newText);
-        if (diffs.length > 0) {
-            outputChannel.appendLine('[Settings.json 변경사항]');
-            diffs.forEach(d => outputChannel.appendLine('  ' + d));
-            outputChannel.appendLine('');
-            hasChanges = true;
-        }
-        settingsManager.writeLocalSettings(newText);
-    }
-    if (gistData.files['keybindings.json']) {
-        settingsManager.writeLocalKeybindings(gistData.files['keybindings.json'].content);
-    }
-    if (gistData.files['antigravity.json']) {
-        settingsManager.writeAntigravityConfig(gistData.files['antigravity.json'].content);
-    }
-    if (gistData.files['browserAllowlist.txt']) {
-        settingsManager.writeBrowserAllowlist(gistData.files['browserAllowlist.txt'].content);
-    }
-    if (gistData.files['snippets.json']) {
-        settingsManager.writeSnippets(gistData.files['snippets.json'].content);
-    }
-
     let installedCount = 0;
     let uninstalledCount = 0;
+    const omissionSummary: OmissionSummary = {
+        skippedSettingKeys: [],
+        skippedAntigravityFiles: []
+    };
 
-    if (gistData.files['extensions.json']) {
-        const newText = gistData.files['extensions.json'].content;
-        const oldText = settingsManager.readInstalledExtensions();
-        const extDiffs = generateExtensionsDiff(oldText, newText);
-        if (extDiffs.length > 0) {
-            outputChannel.appendLine('[익스텐션(Extensions) 변경사항]');
-            extDiffs.forEach(d => outputChannel.appendLine('  ' + d));
-            outputChannel.appendLine('');
-            hasChanges = true;
+    if (fileMap['settings.json']) {
+        outputChannel.appendLine('[Settings.json]');
+        if (!syncOptions.syncSettings) {
+            outputChannel.appendLine('  ! skipped by syncSettings=false');
+        } else {
+            const remoteSettings = fileMap['settings.json'].content || '{}';
+            const filtered = filterSettingsByPlatform(remoteSettings, currentPlatform);
+            const oldText = settingsManager.readLocalSettings();
+            const diffs = generateSettingsDiff(oldText, filtered.content);
+
+            if (diffs.length > 0) {
+                for (const diff of diffs) {
+                    outputChannel.appendLine(`  ${diff}`);
+                }
+                hasChanges = true;
+            } else {
+                outputChannel.appendLine('  - no detected key changes');
+            }
+
+            for (const skippedKey of filtered.skippedKeys) {
+                outputChannel.appendLine(`  ! skipped (platform mismatch): ${skippedKey}`);
+            }
+
+            if (filtered.skippedKeys.length > 0) {
+                omissionSummary.skippedSettingKeys.push(...filtered.skippedKeys);
+            }
+
+            if (hasContentChanged(oldText, filtered.content)) {
+                hasChanges = true;
+            }
+
+            settingsManager.writeLocalSettings(filtered.content);
         }
+        outputChannel.appendLine('');
+    }
 
-        installedCount = await settingsManager.installMissingExtensions(newText);
-        uninstalledCount = await settingsManager.uninstallExtraExtensions(newText);
+    if (fileMap['keybindings.json']) {
+        outputChannel.appendLine('[Keybindings]');
+        if (!syncOptions.syncKeybindings) {
+            outputChannel.appendLine('  ! skipped by syncKeybindings=false');
+        } else {
+            const remoteKeybindings = fileMap['keybindings.json'].content || '[]';
+            const before = settingsManager.readLocalKeybindings();
+            if (hasContentChanged(before, remoteKeybindings)) {
+                hasChanges = true;
+            }
+            settingsManager.writeLocalKeybindings(remoteKeybindings);
+            outputChannel.appendLine('  + applied keybindings.json');
+        }
+        outputChannel.appendLine('');
+    }
+
+    if (fileMap['snippets.json']) {
+        outputChannel.appendLine('[Snippets]');
+        if (!syncOptions.syncSnippets) {
+            outputChannel.appendLine('  ! skipped by syncSnippets=false');
+        } else {
+            const remoteSnippets = fileMap['snippets.json'].content || '{}';
+            const before = settingsManager.readSnippets();
+            if (hasContentChanged(before, remoteSnippets)) {
+                hasChanges = true;
+            }
+            settingsManager.writeSnippets(remoteSnippets);
+            outputChannel.appendLine('  + applied snippets');
+        }
+        outputChannel.appendLine('');
+    }
+
+    const antigravityFileLines: string[] = [];
+    if (fileMap['antigravity.json']) {
+        if (!syncOptions.syncAntigravityConfig) {
+            antigravityFileLines.push('  ! skipped: antigravity.json (syncAntigravityConfig=false)');
+        } else if (!antigravityMode) {
+            antigravityFileLines.push('  ! skipped: antigravity.json (platform mismatch)');
+            omissionSummary.skippedAntigravityFiles.push('antigravity.json');
+        } else {
+            const remoteConfig = fileMap['antigravity.json'].content || '{}';
+            const before = settingsManager.readAntigravityConfig();
+            if (hasContentChanged(before, remoteConfig)) {
+                hasChanges = true;
+            }
+            settingsManager.writeAntigravityConfig(remoteConfig);
+            antigravityFileLines.push('  + applied: antigravity.json');
+        }
+    }
+
+    if (fileMap['browserAllowlist.txt']) {
+        if (!syncOptions.syncAntigravityConfig) {
+            antigravityFileLines.push('  ! skipped: browserAllowlist.txt (syncAntigravityConfig=false)');
+        } else if (!antigravityMode) {
+            antigravityFileLines.push('  ! skipped: browserAllowlist.txt (platform mismatch)');
+            omissionSummary.skippedAntigravityFiles.push('browserAllowlist.txt');
+        } else {
+            const remoteAllowlist = fileMap['browserAllowlist.txt'].content || '';
+            const before = settingsManager.readBrowserAllowlist();
+            if (hasContentChanged(before, remoteAllowlist)) {
+                hasChanges = true;
+            }
+            settingsManager.writeBrowserAllowlist(remoteAllowlist);
+            antigravityFileLines.push('  + applied: browserAllowlist.txt');
+        }
+    }
+
+    if (antigravityFileLines.length > 0) {
+        outputChannel.appendLine('[Antigravity-only files]');
+        for (const line of antigravityFileLines) {
+            outputChannel.appendLine(line);
+        }
+        outputChannel.appendLine('');
+    }
+
+    if (fileMap['extensions.json']) {
+        outputChannel.appendLine('[Extensions]');
+        if (!syncOptions.syncExtensions) {
+            outputChannel.appendLine('  ! skipped by syncExtensions=false');
+            outputChannel.appendLine('');
+        } else {
+            const remoteExtensions = fileMap['extensions.json'].content || '[]';
+            const oldText = settingsManager.readInstalledExtensions();
+            const originalEntries = parseExtensionList(remoteExtensions);
+            const displayById = new Map<string, string>(
+                originalEntries.map(entry => [entry.id.toLowerCase(), extensionLabel(entry)])
+            );
+
+            const {
+                filteredJson,
+                unavailableIds,
+                unknownIds
+            } = await filterExtensionsByMarketplace(remoteExtensions);
+
+            const filteredEntries = parseExtensionList(filteredJson);
+            const currentlyInstalled = getInstalledUserExtensionIds();
+            const installedNames: string[] = [];
+            const alreadyInstalledNames: string[] = [];
+            const skippedIgnoredNames: string[] = [];
+            const failedInstallNames: string[] = [];
+
+            for (const entry of filteredEntries) {
+                const normalizedId = entry.id.toLowerCase();
+                const label = extensionLabel(entry);
+
+                if (ignoredExtensionIds.has(normalizedId)) {
+                    skippedIgnoredNames.push(label);
+                    continue;
+                }
+
+                if (currentlyInstalled.has(normalizedId)) {
+                    alreadyInstalledNames.push(label);
+                    continue;
+                }
+
+                try {
+                    await vscode.commands.executeCommand(
+                        'workbench.extensions.installExtension',
+                        entry.id
+                    );
+                    installedCount++;
+                    installedNames.push(label);
+                    currentlyInstalled.add(normalizedId);
+                } catch (err: any) {
+                    const reason = err?.message ? `: ${err.message}` : '';
+                    failedInstallNames.push(`${label}${reason}`);
+                }
+            }
+
+            uninstalledCount = await settingsManager.uninstallExtraExtensions(filteredJson);
+
+            const extDiffs = generateExtensionsDiff(oldText, filteredJson);
+            if (extDiffs.length > 0) {
+                for (const diff of extDiffs) {
+                    outputChannel.appendLine(`  ${diff}`);
+                }
+            }
+
+            const uniqueUnavailable = uniqueList(unavailableIds);
+            for (const id of uniqueUnavailable) {
+                const label = displayById.get(id) || id;
+                outputChannel.appendLine(`  ! skipped (not found in marketplace): ${label}`);
+            }
+
+            const uniqueUnknown = uniqueList(unknownIds);
+            for (const id of uniqueUnknown) {
+                const label = displayById.get(id) || id;
+                outputChannel.appendLine(`  ! marketplace check unknown (install attempted): ${label}`);
+            }
+
+            for (const name of installedNames) {
+                outputChannel.appendLine(`  + installed: ${name}`);
+            }
+            for (const name of alreadyInstalledNames) {
+                outputChannel.appendLine(`  = already installed: ${name}`);
+            }
+            for (const name of skippedIgnoredNames) {
+                outputChannel.appendLine(`  ! skipped (ignored): ${name}`);
+            }
+            for (const name of failedInstallNames) {
+                outputChannel.appendLine(`  ! install failed: ${name}`);
+            }
+
+            if (uninstalledCount > 0) {
+                outputChannel.appendLine(`  - removed extra extensions: ${uninstalledCount}`);
+            }
+
+            if (
+                extDiffs.length === 0 &&
+                uniqueUnavailable.length === 0 &&
+                uniqueUnknown.length === 0 &&
+                installedNames.length === 0 &&
+                alreadyInstalledNames.length === 0 &&
+                skippedIgnoredNames.length === 0 &&
+                failedInstallNames.length === 0 &&
+                uninstalledCount === 0
+            ) {
+                outputChannel.appendLine('  - no extension updates');
+            }
+
+            if (
+                extDiffs.length > 0 ||
+                installedNames.length > 0 ||
+                failedInstallNames.length > 0 ||
+                uninstalledCount > 0
+            ) {
+                hasChanges = true;
+            }
+
+            outputChannel.appendLine('');
+        }
     }
 
     if (!hasChanges) {
-        outputChannel.appendLine('변경된 로컬 설정이 없습니다. (최신 상태)');
+        outputChannel.appendLine('No local changes were applied.');
     }
 
     const now = new Date().toISOString();
@@ -828,22 +1275,56 @@ async function applyGistData(
     lastSyncTime = now;
     updateStatusBar('idle');
 
-    if (!silent) {
-        let msg = 'Soloboi\'s Settings Sync 완료: 설정이 적용되었습니다.';
-        if (installedCount > 0 || uninstalledCount > 0) {
-            msg += ` (익스텐션 ${installedCount}개 설치, ${uninstalledCount}개 제거)`;
+    const uniqueSkippedKeys = uniqueList(omissionSummary.skippedSettingKeys);
+    const uniqueSkippedFiles = uniqueList(omissionSummary.skippedAntigravityFiles);
+    const hasOmissions = uniqueSkippedKeys.length > 0 || uniqueSkippedFiles.length > 0;
+
+    if (hasOmissions) {
+        outputChannel.appendLine('[Cross-platform note] 일부 설정값이 플랫폼 차이로 누락되었습니다.');
+        outputChannel.appendLine('  - Antigravity는 VS Code 기반이지만, Antigravity 전용 설정값은 VS Code에서 직접 적용이 어려울 수 있습니다.');
+        outputChannel.appendLine('  - 일부 설정값은 사용자가 직접 수정해야 합니다.');
+        if (uniqueSkippedKeys.length > 0) {
+            outputChannel.appendLine(`  - skipped antigravity.* keys: ${uniqueSkippedKeys.length}`);
         }
-        
-        vscode.window.showInformationMessage(msg, '자세히 보기').then(selection => {
-            if (selection === '자세히 보기') {
+        if (uniqueSkippedFiles.length > 0) {
+            outputChannel.appendLine(`  - skipped Antigravity-only files: ${uniqueSkippedFiles.join(', ')}`);
+        }
+        outputChannel.appendLine('');
+    }
+
+    if (!silent) {
+        let msg = 'Soloboi\'s Settings Sync complete: settings applied.';
+        if (installedCount > 0 || uninstalledCount > 0) {
+            msg += ` (extensions +${installedCount}, -${uninstalledCount})`;
+        }
+
+        vscode.window.showInformationMessage(msg, 'View report').then(selection => {
+            if (selection === 'View report') {
+                outputChannel.show(true);
+            }
+        });
+    }
+
+    if (hasOmissions && (!silent || forceOmissionNotice)) {
+        const parts: string[] = [];
+        if (uniqueSkippedKeys.length > 0) {
+            parts.push(`antigravity.* 설정 ${uniqueSkippedKeys.length}개`);
+        }
+        if (uniqueSkippedFiles.length > 0) {
+            parts.push(`Antigravity 전용 파일 ${uniqueSkippedFiles.length}개`);
+        }
+
+        const summary = parts.length > 0 ? parts.join(', ') : '일부 설정';
+        vscode.window.showWarningMessage(
+            `일부 설정값이 누락될 수 있습니다. (${summary}) 누락된 설정은 동기화 이후 사용자에게 안내됩니다.`,
+            'View report'
+        ).then(selection => {
+            if (selection === 'View report') {
                 outputChannel.show(true);
             }
         });
     }
 }
-
-// ─── Gist History ────────────────────────────────────────────────────
-
 async function showGistHistory(context: vscode.ExtensionContext): Promise<void> {
     const token = await authManager.getToken();
     if (!token) return;
@@ -851,7 +1332,7 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
     const gistId = config.get<string>('gistId');
     if (!gistId) {
-        vscode.window.showWarningMessage('Soloboi\'s Settings Sync: Gist ID가 설정되지 않았습니다.');
+        vscode.window.showWarningMessage("Soloboi's Settings Sync: Gist ID is not set.");
         return;
     }
 
@@ -859,7 +1340,7 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
     try {
         const history = await gistService.getGistHistory(gistId, token);
         if (!history || history.length === 0) {
-            vscode.window.showInformationMessage('Soloboi\'s Settings Sync: Gist 히스토리가 없습니다.');
+            vscode.window.showInformationMessage("Soloboi's Settings Sync: No Gist history found.");
             updateStatusBar('idle');
             return;
         }
@@ -873,8 +1354,8 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
 
         updateStatusBar('idle');
         const selected = await vscode.window.showQuickPick(items, {
-            title: '복원할 Gist 버전을 선택하세요',
-            placeHolder: '이전 설정 버전 선택'
+            title: 'Select a Gist revision to restore',
+            placeHolder: 'Choose a previous settings version'
         });
 
         if (selected) {
@@ -883,15 +1364,15 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
             const gistData = await gistService.getGistRevision(gistId, sha, token);
             await applyGistData(gistData, context);
             updateStatusBar('idle');
-            vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 이전 버전으로 복원되었습니다.');
+            vscode.window.showInformationMessage("Soloboi's Settings Sync: Restored selected revision.");
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Soloboi\'s Settings Sync: 히스토리 조회 실패 — ${err.message}`);
+        vscode.window.showErrorMessage(`Soloboi's Settings Sync: Failed to load history: ${err.message}`);
         updateStatusBar('error');
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────
+// ??? Helpers ?????????????????????????????????????????????????????????
 
 async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<void> {
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -965,39 +1446,37 @@ async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<voi
 }
 
 async function selectOrCreateGist(
-    context: vscode.ExtensionContext, 
-    token: string, 
-    files: any, 
+    context: vscode.ExtensionContext,
+    token: string,
+    files: any,
     silent: boolean
 ): Promise<string | null> {
     if (silent) return null;
-    
+
     updateStatusBar('downloading');
     let gists: any[] = [];
     try {
         gists = await gistService.getUserGists(token);
     } catch (err) {
-        vscode.window.showErrorMessage('Soloboi\'s Settings Sync: Gist 목록을 가져오지 못했습니다.');
+        vscode.window.showErrorMessage("Soloboi's Settings Sync: Failed to fetch Gist list.");
         updateStatusBar('idle');
         return null;
     }
 
-    const platformGists = gists.filter(g => 
+    const platformGists = gists.filter(g =>
         g.description && g.description.startsWith(GIST_DESCRIPTION_PREFIX)
     );
 
     updateStatusBar('idle');
 
     if (platformGists.length === 0) {
-        // No existing Gist, directly create one
         return await createNewGist(token, files, silent);
     }
 
-    // Prepare QuickPick items
     const items: vscode.QuickPickItem[] = [
         {
-            label: '$(add) 새로운 동기화 Gist 생성',
-            description: '현재 설정을 바탕으로 새 Gist를 생성합니다.',
+            label: '$(add) Create New Sync Gist',
+            description: 'Create a new Gist from current local settings.',
             detail: 'NEW'
         },
         {
@@ -1010,14 +1489,14 @@ async function selectOrCreateGist(
         items.push({
             label: `$(repo) ${g.description}`,
             description: g.id,
-            detail: `마지막 업데이트: ${new Date(g.updated_at).toLocaleString()}`,
+            detail: `Last updated: ${new Date(g.updated_at).toLocaleString()}`,
             id: g.id
         } as any);
     });
 
     const selected = await vscode.window.showQuickPick(items, {
-        title: 'Soloboi 동기화 Gist 선택',
-        placeHolder: '기존 동기화 설정을 선택하거나 새로 생성하세요.'
+        title: 'Select Sync Gist',
+        placeHolder: 'Select an existing sync Gist or create a new one.'
     });
 
     if (!selected) return null;
@@ -1031,13 +1510,13 @@ async function selectOrCreateGist(
             await saveCurrentProfileFromGlobal(config);
         }
         return gistId;
-    } else {
-        const gistId = (selected as any).id;
-        await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
-        await saveCurrentProfileFromGlobal(config);
-        vscode.window.showInformationMessage(`Soloboi\'s Settings Sync: 기존 Gist(${gistId})가 선택되었습니다.`);
-        return gistId;
     }
+
+    const gistId = (selected as any).id;
+    await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+    await saveCurrentProfileFromGlobal(config);
+    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Selected existing Gist (${gistId}).`);
+    return gistId;
 }
 
 async function createNewGist(token: string, files: any, silent: boolean): Promise<string | null> {
@@ -1052,17 +1531,17 @@ async function createNewGist(token: string, files: any, silent: boolean): Promis
         updateStatusBar('uploading');
         const result = await gistService.createGist(description, files || buildGistFiles(), token, isPublic);
         updateStatusBar('idle');
-        
+
         if (!silent) {
             vscode.window.showInformationMessage(
-                `Soloboi\'s Settings Sync: 새 Gist가 생성되었습니다. (기기명: ${hostname})`
+                `Soloboi's Settings Sync: New Gist created. (machine: ${hostname})`
             );
         }
         return result.id;
     } catch (err: any) {
-        console.error('Soloboi\'s Settings Sync: Create Gist error', err);
+        console.error("Soloboi's Settings Sync: Create Gist error", err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi\'s Settings Sync: Gist 생성 실패 — ${err.message}`);
+            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Failed to create Gist: ${err.message}`);
         }
         updateStatusBar('error');
         return null;
@@ -1070,6 +1549,9 @@ async function createNewGist(token: string, files: any, silent: boolean): Promis
 }
 
 function buildGistFiles(): Record<string, { content: string }> | null {
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const syncOptions = getSyncOptions(config);
+
     const settings = settingsManager.readLocalSettings();
     const keybindings = settingsManager.readLocalKeybindings();
     const extensions = settingsManager.readInstalledExtensions();
@@ -1079,21 +1561,28 @@ function buildGistFiles(): Record<string, { content: string }> | null {
 
     const files: Record<string, { content: string }> = {};
 
-    if (settings) {
-        files['settings.json'] = { content: settings };
+    if (syncOptions.syncSettings && settings) {
+        const filtered = filterSettingsByPlatform(settings, currentPlatform);
+        files['settings.json'] = { content: filtered.content };
     }
-    // keybindings always available (empty array if file doesn't exist)
-    files['keybindings.json'] = { content: keybindings };
-    // extensions always available (may be empty list)
-    files['extensions.json'] = { content: extensions };
-    
-    if (antigravityConfig) {
+
+    if (syncOptions.syncKeybindings) {
+        // keybindings always available (empty array if file doesn't exist)
+        files['keybindings.json'] = { content: keybindings };
+    }
+
+    if (syncOptions.syncExtensions) {
+        // extensions always available (may be empty list)
+        files['extensions.json'] = { content: extensions };
+    }
+
+    if (syncOptions.syncAntigravityConfig && isAntigravityPlatform(currentPlatform) && antigravityConfig) {
         files['antigravity.json'] = { content: antigravityConfig };
     }
-    if (browserAllowlist) {
+    if (syncOptions.syncAntigravityConfig && isAntigravityPlatform(currentPlatform) && browserAllowlist) {
         files['browserAllowlist.txt'] = { content: browserAllowlist };
     }
-    if (snippets) {
+    if (syncOptions.syncSnippets && snippets) {
         files['snippets.json'] = { content: snippets };
     }
 
@@ -1114,30 +1603,31 @@ function updateStatusBar(state: 'idle' | 'uploading' | 'downloading' | 'error' |
     switch (state) {
         case 'uploading':
             statusBarItem.text = '$(sync~spin) Uploading...';
-            statusBarItem.tooltip = '설정 업로드 중...';
+            statusBarItem.tooltip = 'Uploading settings...';
             break;
         case 'downloading':
             statusBarItem.text = '$(sync~spin) Downloading...';
-            statusBarItem.tooltip = '설정 다운로드 중...';
+            statusBarItem.tooltip = 'Downloading settings...';
             break;
         case 'error':
             statusBarItem.text = '$(error) Sync Error';
-            statusBarItem.tooltip = '동기화 오류 발생';
+            statusBarItem.tooltip = 'A sync error occurred.';
             setTimeout(() => updateStatusBar('idle'), 5000);
             break;
         case 'logged-out':
             statusBarItem.text = '$(sign-in) Soloboi\'s Settings Sync';
-            statusBarItem.tooltip = '클릭하여 로그인 및 동기화';
+            statusBarItem.tooltip = 'Click to sign in and sync settings.';
             break;
         default: {
             statusBarItem.text = '$(sync) Soloboi\'s Settings Sync';
             const lastSync = lastSyncTime;
             if (lastSync) {
-                statusBarItem.tooltip = `마지막 동기화: ${new Date(lastSync).toLocaleString()}\n클릭하여 동기화`;
+                statusBarItem.tooltip = `Last sync: ${new Date(lastSync).toLocaleString()}\nClick to sync now.`;
             } else {
-                statusBarItem.tooltip = '클릭하여 동기화';
+                statusBarItem.tooltip = 'Click to sync now.';
             }
             break;
         }
     }
 }
+

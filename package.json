@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -60,10 +60,6 @@
       {
         "command": "soloboisSettingsSync.setGistId",
         "title": "Soloboi's Settings Sync: Set Gist ID"
-      },
-      {
-        "command": "soloboisSettingsSync.showDiff",
-        "title": "Soloboi's Settings Sync: Show Diff"
       },
       {
         "command": "soloboisSettingsSync.switchProfile",
@@ -173,6 +169,11 @@
           "type": "boolean",
           "default": true,
           "description": "Sync user snippets."
+        },
+        "soloboisSettingsSync.syncAntigravityConfig": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync Antigravity-only config files (antigravity.json, browserAllowlist.txt). If not explicitly set, runtime default follows platform: true on Antigravity, false on VS Code."
         },
         "soloboisSettingsSync.ignoredExtensions": {
           "type": "array",

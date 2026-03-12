@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { AuthManager } from './auth';
 import { GistService } from './gistService';
 
-const GIST_DESCRIPTION_PREFIX = 'Soloboi\'s Settings Sync — ';
+const GIST_DESCRIPTION_PREFIX = 'Soloboi\'s Settings Sync - ';
 
 export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<SyncTreeItem | undefined | void> = new vscode.EventEmitter<SyncTreeItem | undefined | void>();
