@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
