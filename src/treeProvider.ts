@@ -297,6 +297,13 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             { command: 'soloboisSettingsSync.reportIssue', title: 'Report Issue' },
             new vscode.ThemeIcon('bug')
         ));
+        items.push(new SyncTreeItem(
+            'View Log',
+            "Open Soloboi's Settings Sync log channel.",
+            vscode.TreeItemCollapsibleState.None,
+            { command: 'soloboisSettingsSync.showLog', title: 'View Log' },
+            new vscode.ThemeIcon('output')
+        ));
 
         return items;
     }

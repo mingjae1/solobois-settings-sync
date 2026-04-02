@@ -144,6 +144,11 @@
         "category": "Soloboi Sync"
       },
       {
+        "command": "soloboisSettingsSync.showLog",
+        "title": "로그 보기",
+        "category": "Soloboi Sync"
+      },
+      {
         "command": "soloboisSettingsSync.getStarted",
         "title": "Getting Started",
         "category": "Soloboi Sync"

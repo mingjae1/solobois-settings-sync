@@ -33,6 +33,7 @@ let isApplyingRemoteChanges = false;
 let autoUploadSuspendedUntil = 0;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
+let logChannel: vscode.OutputChannel;
 let lastSyncTime: string | null = null;
 let currentPlatform: Platform = 'unknown';
 
@@ -78,9 +79,49 @@ type GettingStartedAction =
     | 'createOrUpload'
     | 'syncNow'
     | 'viewDiff'
+    | 'viewLog'
     | 'openSettings'
     | 'openRepo'
     | 'reportIssue';
+
+function toErrorMessage(err: unknown): string {
+    if (!err) {
+        return 'Unknown error';
+    }
+    if (err instanceof Error) {
+        return err.message;
+    }
+    if (typeof err === 'string') {
+        return err;
+    }
+    try {
+        return JSON.stringify(err);
+    } catch {
+        return String(err);
+    }
+}
+
+function logLine(level: 'INFO' | 'WARN' | 'ERROR', message: string, err?: unknown): void {
+    const ts = new Date().toISOString();
+    const suffix = err ? ` | ${toErrorMessage(err)}` : '';
+    try {
+        logChannel?.appendLine(`[${ts}] ${level} ${message}${suffix}`);
+    } catch {
+        // ignore logging failures
+    }
+}
+
+function logInfo(message: string): void {
+    logLine('INFO', message);
+}
+
+function logWarn(message: string, err?: unknown): void {
+    logLine('WARN', message, err);
+}
+
+function logError(message: string, err?: unknown): void {
+    logLine('ERROR', message, err);
+}
 
 function normalizeIgnoredSettings(keys: string[]): string[] {
     const seen = new Set<string>();
@@ -135,6 +176,11 @@ async function runGettingStartedWizard(context: vscode.ExtensionContext): Promis
             action: 'viewDiff'
         },
         {
+            label: '$(output) View Log',
+            description: 'Troubleshooting details',
+            action: 'viewLog'
+        },
+        {
             label: '$(gear) Open Settings',
             description: 'Configure sync behavior',
             action: 'openSettings'
@@ -178,6 +224,9 @@ async function runGettingStartedWizard(context: vscode.ExtensionContext): Promis
             break;
         case 'viewDiff':
             await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            break;
+        case 'viewLog':
+            await vscode.commands.executeCommand('soloboisSettingsSync.showLog');
             break;
         case 'openSettings':
             await vscode.commands.executeCommand('soloboisSettingsSync.openSettings');
@@ -742,9 +791,14 @@ export async function activate(context: vscode.ExtensionContext) {
     updateStatusBar('idle');
     statusBarItem.show();
 
-    // Create Output Channel for Diff View
-    outputChannel = vscode.window.createOutputChannel('Soloboi\'s Settings Sync Log');
+    // Output channels
+    outputChannel = vscode.window.createOutputChannel("Soloboi's Settings Sync");
     context.subscriptions.push(outputChannel);
+    // Log channel (kept separate from the report output, so diff/preview clears won't wipe logs)
+    logChannel = vscode.window.createOutputChannel("Soloboi's Settings Sync Log", { log: true });
+    context.subscriptions.push(logChannel);
+    logInfo('Activated extension.');
+    logInfo(`Detected platform=${currentPlatform} (appName=${vscode.env.appName})`);
 
     // Register Tree View
     const treeProvider = new SoloboiSyncTreeProvider(authManager, gistService);
@@ -1395,6 +1449,12 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.showLog', async () => {
+            logChannel.show(true);
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.getStarted', async () => {
             await runGettingStartedWizard(context);
         })
@@ -1503,9 +1563,11 @@ export function deactivate(): Thenable<void> | undefined {
                     const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
                     await gistService.updateGist(gistId, files, token, undefined, filesToDelete);
                     console.log('Soloboi\'s Settings Sync: Uploaded settings on exit.');
+                    logInfo('Uploaded settings on exit.');
                 }
             } catch (err) {
                 console.error('Soloboi\'s Settings Sync: Failed to upload on exit', err);
+                logError('Failed to upload on exit.', err);
             }
         })();
     }
@@ -1521,6 +1583,7 @@ async function uploadSettings(
     if (isUploading || isDownloading || isApplyingRemoteChanges) { return false; }
     isUploading = true;
     updateStatusBar('uploading');
+    logInfo('Upload started.');
 
     try {
         const token = await authManager.getToken();
@@ -1528,6 +1591,7 @@ async function uploadSettings(
             if (!silent) {
                 vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
             }
+            logWarn('Upload aborted: missing GitHub token.');
             return false;
         }
 
@@ -1536,6 +1600,7 @@ async function uploadSettings(
             if (!silent) {
                 vscode.window.showErrorMessage("Soloboi's Settings Sync: No sync files were generated.");
             }
+            logError('Upload failed: no sync files were generated.');
             return false;
         }
 
@@ -1565,24 +1630,39 @@ async function uploadSettings(
             const selection = await vscode.window.showInformationMessage(
                 "Soloboi's Settings Sync: Uploaded to Gist.",
                 'Open Gist',
-                'View Output'
+                'View Output',
+                'View Log'
             );
             if (selection === 'Open Gist') {
                 await vscode.env.openExternal(vscode.Uri.parse(`https://gist.github.com/${gistId}`));
             } else if (selection === 'View Output') {
                 outputChannel.show(true);
+            } else if (selection === 'View Log') {
+                logChannel.show(true);
             }
         }
 
         const now = new Date().toISOString();
         await markStateSynchronized(context, now);
         updateStatusBar('idle');
+        logInfo(`Upload completed. gistId=${gistId ?? ''}`);
         return true;
 
     } catch (err: any) {
         console.error("Soloboi's Settings Sync upload error:", err);
+        logError('Upload failed.', err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Upload failed: ${err.message}`);
+            vscode.window.showErrorMessage(
+                `Soloboi's Settings Sync: Upload failed: ${err.message}`,
+                'View Log',
+                'View Output'
+            ).then(selection => {
+                if (selection === 'View Log') {
+                    logChannel.show(true);
+                } else if (selection === 'View Output') {
+                    outputChannel.show(true);
+                }
+            });
         }
         updateStatusBar('error');
         return false;
@@ -1603,6 +1683,7 @@ async function downloadSettings(
     }
     isDownloading = true;
     updateStatusBar('downloading');
+    logInfo('Download started.');
 
     try {
         const token = await authManager.getToken();
@@ -1610,6 +1691,7 @@ async function downloadSettings(
             if (!silent) {
                 vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
             }
+            logWarn('Download aborted: missing GitHub token.');
             return false;
         }
 
@@ -1667,20 +1749,35 @@ async function downloadSettings(
             const selection = await vscode.window.showInformationMessage(
                 "Soloboi's Settings Sync: Downloaded and applied.",
                 'View Output',
-                'View Diff'
+                'View Diff',
+                'View Log'
             );
             if (selection === 'View Output') {
                 outputChannel.show(true);
             } else if (selection === 'View Diff') {
                 await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            } else if (selection === 'View Log') {
+                logChannel.show(true);
             }
         }
+        logInfo(`Download completed. gistId=${gistId ?? ''}`);
         return true;
 
     } catch (err: any) {
         console.error("Soloboi's Settings Sync download error:", err);
+        logError('Download failed.', err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Download failed: ${err.message}`);
+            vscode.window.showErrorMessage(
+                `Soloboi's Settings Sync: Download failed: ${err.message}`,
+                'View Log',
+                'View Output'
+            ).then(selection => {
+                if (selection === 'View Log') {
+                    logChannel.show(true);
+                } else if (selection === 'View Output') {
+                    outputChannel.show(true);
+                }
+            });
         }
         updateStatusBar('error');
         return false;
@@ -1698,6 +1795,7 @@ async function fullSync(context: vscode.ExtensionContext): Promise<void> {
     if (gistId) {
         const downloaded = await downloadSettings(context, true, true);
         if (!downloaded) {
+            logWarn('Full sync aborted: download step failed (upload skipped).');
             vscode.window.showWarningMessage(
                 "Soloboi's Settings Sync: Download step failed. Upload skipped to avoid overwriting remote settings."
             );
@@ -1707,12 +1805,15 @@ async function fullSync(context: vscode.ExtensionContext): Promise<void> {
         vscode.window.showInformationMessage(
             "Soloboi's Settings Sync: Sync complete!",
             'View Output',
-            'View Diff'
+            'View Diff',
+            'View Log'
         ).then(async selection => {
             if (selection === 'View Output') {
                 outputChannel.show(true);
             } else if (selection === 'View Diff') {
                 await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            } else if (selection === 'View Log') {
+                logChannel.show(true);
             }
         });
     } else {
