@@ -129,6 +129,16 @@
         "category": "Soloboi Sync"
       },
       {
+        "command": "soloboisSettingsSync.removePrivateExtension",
+        "title": "사설 익스텐션 제거",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.shareSettings",
+        "title": "설정 공유 (Share Your Settings)",
+        "category": "Soloboi Sync"
+      },
+      {
         "command": "soloboisSettingsSync.openSettings",
         "title": "설정 열기",
         "category": "Soloboi Sync"

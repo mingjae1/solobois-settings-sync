@@ -24,6 +24,9 @@ const DEFAULT_PROFILE_NAME = 'Default';
 
 let authManager: AuthManager;
 let gistService: GistService;
+
+/** Content store for virtual diff documents (soloboi-diff: scheme). */
+const diffDocumentStore = new Map<string, string>();
 let settingsManager: SettingsManager;
 let fileWatcher: vscode.FileSystemWatcher | undefined;
 let uploadTimer: NodeJS.Timeout | undefined;
@@ -797,6 +800,15 @@ export async function activate(context: vscode.ExtensionContext) {
     // Log channel (kept separate from the report output, so diff/preview clears won't wipe logs)
     logChannel = vscode.window.createOutputChannel("Soloboi's Settings Sync Log", { log: true });
     context.subscriptions.push(logChannel);
+
+    // Virtual document provider for vscode.diff panels
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider('soloboi-diff', {
+            provideTextDocumentContent(uri: vscode.Uri): string {
+                return diffDocumentStore.get(uri.path) ?? '';
+            }
+        })
+    );
     logInfo('Activated extension.');
     logInfo(`Detected platform=${currentPlatform} (appName=${vscode.env.appName})`);
 
@@ -1139,6 +1151,123 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // ── Share Your Settings ────────────────────────────────────────────────
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.shareSettings', async () => {
+            const token = await authManager.getToken();
+            if (!token) {
+                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
+                return;
+            }
+
+            // Fetch existing public sync gists
+            const allGists: any[] = await gistService.getUserGists(token);
+            const SHARE_PREFIX = "Soloboi's Settings Sync - ";
+            const publicGists = allGists.filter(
+                (g: any) => g.public === true && g.description?.startsWith(SHARE_PREFIX)
+            );
+
+            type ShareAction = vscode.QuickPickItem & { action: 'copy' | 'create'; gist?: any };
+            const items: ShareAction[] = [
+                ...publicGists.map((g: any) => ({
+                    label: `$(link) ${g.description.replace(SHARE_PREFIX, '') || g.id}`,
+                    description: `gist.github.com/${g.owner?.login ?? ''}/${g.id}`,
+                    action: 'copy' as const,
+                    gist: g
+                })),
+                {
+                    label: '$(add) Create new public snapshot...',
+                    description: 'Uploads a public copy of your current settings (secrets masked)',
+                    action: 'create' as const
+                }
+            ];
+
+            const picked = await vscode.window.showQuickPick(items as any[], {
+                title: 'Share Your Settings',
+                placeHolder: publicGists.length > 0
+                    ? 'Select a shared gist to copy its URL, or create a new one'
+                    : 'No public gists yet — create one to share your settings'
+            });
+            if (!picked) { return; }
+
+            const p = picked as ShareAction;
+
+            if (p.action === 'copy' && p.gist) {
+                // Also offer rename
+                const url = `https://gist.github.com/${p.gist.owner?.login ?? ''}/${p.gist.id}`;
+                const choice = await vscode.window.showQuickPick(
+                    [
+                        { label: '$(clippy) Copy Share URL', value: 'copy' },
+                        { label: '$(edit) Rename this Gist', value: 'rename' }
+                    ],
+                    { title: p.gist.description?.replace(SHARE_PREFIX, '') || p.gist.id }
+                );
+                if (!choice) { return; }
+                if (choice.value === 'copy') {
+                    await vscode.env.clipboard.writeText(url);
+                    vscode.window.showInformationMessage(
+                        `Soloboi's Settings Sync: Link copied! Share it with friends 🎉\n${url}`
+                    );
+                } else {
+                    const newName = await vscode.window.showInputBox({
+                        title: 'Rename Gist',
+                        prompt: 'Enter a new name for this shared gist.',
+                        value: p.gist.description?.replace(SHARE_PREFIX, '') || ''
+                    });
+                    if (!newName) { return; }
+                    await gistService.updateGist(p.gist.id, {}, token, SHARE_PREFIX + newName.trim());
+                    vscode.window.showInformationMessage(
+                        `Soloboi's Settings Sync: Gist renamed to "${newName.trim()}".`
+                    );
+                    treeProvider.refresh();
+                }
+                return;
+            }
+
+            // Create new public snapshot
+            updateStatusBar('uploading');
+            try {
+                const rawSettings = settingsManager.readLocalSettings() || '{}';
+                const { result: maskedSettings } = sensitiveDataGuard.redactJsonString(rawSettings, 'public');
+
+                const nameInput = await vscode.window.showInputBox({
+                    title: 'Share Your Settings — Name',
+                    prompt: 'Give this snapshot a name (shown in the Gist description).',
+                    placeHolder: 'My VS Code Setup',
+                    value: 'My VS Code Setup'
+                });
+                if (nameInput === undefined) { return; }
+
+                const description = SHARE_PREFIX + (nameInput.trim() || 'My VS Code Setup');
+                const gistData = await gistService.createGist(
+                    description,
+                    { 'settings.json': { content: maskedSettings } },
+                    token,
+                    true  // public
+                );
+
+                const url = `https://gist.github.com/${(gistData as any)?.owner?.login ?? ''}/${gistData?.id}`;
+                await vscode.env.clipboard.writeText(url);
+                vscode.window.showInformationMessage(
+                    `Soloboi's Settings Sync: Settings shared! URL copied 🎉\n${url}`,
+                    'Open in Browser'
+                ).then(sel => {
+                    if (sel === 'Open in Browser') {
+                        vscode.env.openExternal(vscode.Uri.parse(url));
+                    }
+                });
+                logInfo(`[Share] Created public settings gist: ${url}`);
+                treeProvider.refresh();
+            } catch (err: any) {
+                vscode.window.showErrorMessage(
+                    `Soloboi's Settings Sync: Share failed: ${err?.message ?? err}`
+                );
+            } finally {
+                updateStatusBar('idle');
+            }
+        })
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.showLocalVsRemoteDiff', async () => {
             const token = await authManager.getToken();
@@ -1158,17 +1287,56 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (!gistData?.files) {
                     throw new Error('Invalid Gist data');
                 }
-                const trustLevel = getGistTrustLevel(gistData, gistId);
-                const diff = await computeSyncDiff(gistData, context, gistId, trustLevel);
-                const summary = formatSyncPreviewSummary(diff, gistId, trustLevel);
-                outputChannel.clear();
-                outputChannel.appendLine('=== Local vs Remote Diff ===');
-                outputChannel.appendLine(summary);
-                outputChannel.show(true);
-                vscode.window.showInformationMessage(
-                    "Soloboi's Settings Sync: Diff computed. See Output panel for details.",
-                    'View'
-                ).then(sel => { if (sel === 'View') { outputChannel.show(true); } });
+
+                // Open one diff panel per file that exists in both local and remote
+                const filesToDiff: { filename: string; remote: string; local: string }[] = [];
+
+                if (gistData.files['settings.json']) {
+                    const remote = gistData.files['settings.json'].content || '{}';
+                    const local = settingsManager.readLocalSettings() || '{}';
+                    filesToDiff.push({ filename: 'settings.json', remote, local });
+                }
+
+                if (gistData.files['keybindings.json']) {
+                    const remote = gistData.files['keybindings.json'].content || '[]';
+                    const local = settingsManager.readLocalKeybindings() || '[]';
+                    filesToDiff.push({ filename: 'keybindings.json', remote, local });
+                }
+
+                if (gistData.files['extensions.json']) {
+                    const remote = gistData.files['extensions.json'].content || '[]';
+                    const localExtIds = [...getInstalledUserExtensionIds()].map(id => ({ id }));
+                    const local = JSON.stringify(localExtIds, null, 2);
+                    filesToDiff.push({ filename: 'extensions.json', remote, local });
+                }
+
+                if (filesToDiff.length === 0) {
+                    vscode.window.showInformationMessage("Soloboi's Settings Sync: No files to diff.");
+                    return;
+                }
+
+                // Open each file as a side-by-side diff in VS Code's built-in diff editor
+                for (const file of filesToDiff) {
+                    let remoteFormatted = file.remote;
+                    let localFormatted = file.local;
+                    try { remoteFormatted = JSON.stringify(JSON.parse(file.remote), null, 2); } catch {}
+                    try { localFormatted = JSON.stringify(JSON.parse(file.local), null, 2); } catch {}
+
+                    const remotePath = `/remote-${file.filename}`;
+                    const localPath = `/local-${file.filename}`;
+                    diffDocumentStore.set(remotePath, remoteFormatted);
+                    diffDocumentStore.set(localPath, localFormatted);
+
+                    const leftUri = vscode.Uri.parse(`soloboi-diff:${remotePath}`).with({ query: Date.now().toString() });
+                    const rightUri = vscode.Uri.parse(`soloboi-diff:${localPath}`).with({ query: Date.now().toString() });
+
+                    await vscode.commands.executeCommand(
+                        'vscode.diff',
+                        leftUri, rightUri,
+                        `${file.filename}  Remote (Gist) ↔ Local`,
+                        { preview: filesToDiff.length === 1 }
+                    );
+                }
             } catch (err: any) {
                 vscode.window.showErrorMessage(`Soloboi's Settings Sync: Diff failed: ${err.message}`);
             } finally {
@@ -1259,6 +1427,27 @@ export async function activate(context: vscode.ExtensionContext) {
             await cfg.update('customMarketplaceAutoUpdate', !current, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(
                 `Soloboi's Settings Sync: Custom marketplace auto-update ${!current ? 'enabled' : 'disabled'}.`
+            );
+            treeProvider.refresh();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.removePrivateExtension', async (extId?: string) => {
+            const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const existing: any[] = cfg.get('privateExtensions', []);
+
+            const target = extId ?? await vscode.window.showQuickPick(
+                existing.map((e: any) => ({ label: e.id, description: `v${e.version}` })),
+                { title: 'Remove Private Extension', placeHolder: 'Select extension to remove' }
+            ).then(sel => sel?.label);
+
+            if (!target) { return; }
+
+            const updated = existing.filter((e: any) => e.id !== target);
+            await cfg.update('privateExtensions', updated, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(
+                `Soloboi's Settings Sync: "${target}" removed from private extensions.`
             );
             treeProvider.refresh();
         })

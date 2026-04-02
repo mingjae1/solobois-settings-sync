@@ -209,6 +209,13 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 { command: 'soloboisSettingsSync.togglePublicGist', title: 'Toggle Public Gist' },
                 new vscode.ThemeIcon(isPublic ? 'globe' : 'lock')
             ),
+            new SyncTreeItem(
+                'Share Your Settings',
+                'Create a public snapshot of your settings and copy a shareable link.\nSecrets are automatically masked before sharing.',
+                vscode.TreeItemCollapsibleState.None,
+                { command: 'soloboisSettingsSync.shareSettings', title: 'Share Your Settings' },
+                new vscode.ThemeIcon('link-external')
+            ),
         ];
     }
 
@@ -229,7 +236,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             for (const entry of marketplaces) {
                 items.push(new SyncTreeItem(
                     entry.domain,
-                    `URL: ${entry.url}\nClick to remove.`,
+                    `URL: ${entry.url}\n\n🗑 Click to remove this marketplace.`,
                     vscode.TreeItemCollapsibleState.None,
                     { command: 'soloboisSettingsSync.removeMarketplace', title: 'Remove Marketplace', arguments: [entry.domain] },
                     new vscode.ThemeIcon('link')
@@ -297,10 +304,11 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                     `${ext.id} v${ext.version}`,
                     [
                         ext.vsixUrl ? `VSIX URL: ${ext.vsixUrl}` : '⚠️ No VSIX URL — manual install required',
-                        ext.note ? `Note: ${ext.note}` : ''
+                        ext.note ? `Note: ${ext.note}` : '',
+                        '\n🗑 Click to remove from registry.'
                     ].filter(Boolean).join('\n'),
                     vscode.TreeItemCollapsibleState.None,
-                    undefined,
+                    { command: 'soloboisSettingsSync.removePrivateExtension', title: 'Remove Private Extension', arguments: [ext.id] },
                     new vscode.ThemeIcon(ext.vsixUrl ? 'package' : 'warning')
                 ));
             }
