@@ -1,0 +1,211 @@
+📦 Patch Plan (Planned Changes)
+
+Overview
+
+This patch introduces major improvements in:
+
+- Security
+- Sync reliability
+- Extension source handling
+- Public sharing safety
+- Performance (diff-based sync)
+- User transparency (logs & preview)
+
+---
+
+🔐 Security Improvements
+
+1. Public Gist Sanitization
+
+- Public gist no longer uploads raw settings
+- Sensitive values are automatically removed:
+  - tokens, API keys, passwords, auth, cookies, etc.
+- Antigravity configs ("mcp_config.json", "browserAllowlist.txt") are excluded
+
+2. Extension Install Safety
+
+- Extension install/remove now requires user confirmation
+- Prevents malicious or unintended remote execution
+
+3. Trust Model
+
+Gists are classified into:
+
+- "self"
+- "trusted"
+- "untrusted"
+
+Restrictions:
+
+- External gist cannot auto-install extensions
+- Limited sync behavior for untrusted sources
+
+---
+
+🔄 Sync Behavior Changes
+
+4. Manual Sync Mode (Default)
+
+- Auto sync disabled by default
+- User must explicitly trigger:
+  - Upload
+  - Download
+
+5. Extension Sync Fix
+
+- Prevent reinstall loop after extension removal
+- Sync no longer runs automatically on restart
+
+---
+
+📊 Diff & Change Detection
+
+6. Diff-based Sync Engine
+
+- Only changed data is applied
+- Avoids full overwrite
+
+7. Sync Preview
+
+Before applying changes:
+
+- Settings changes
+- Extension additions/removals
+- Snippet updates
+
+---
+
+⚡ Performance Optimization
+
+8. Skip Unchanged Data
+
+- Compare local vs remote before applying
+- Skip identical content
+
+9. Sync Manifest
+
+New file:
+
+sync-manifest.json
+
+Contains:
+
+- version
+- hashes
+- changed files
+
+---
+
+🧠 Partial Sync (Index-based)
+
+10. Change Index
+
+New file:
+
+sync-index.json
+
+Tracks:
+
+- changed paths
+- extension actions
+
+Used for:
+
+- faster apply
+- selective updates
+
+---
+
+🕘 History + Diff
+
+11. History Diff View
+
+- Show what changed per revision
+- Not just timestamp
+
+Example:
+
+- settings: 3 changed
+- extensions: +1 / -2
+
+12. Restore Preview
+
+Before restoring:
+
+- show diff
+- confirm action
+
+---
+
+📜 Logging System
+
+13. Sync Logs
+
+Track:
+
+- operation (upload/download/restore)
+- applied changes
+- skipped items
+- errors
+
+14. Output Channel
+
+- Display logs in VS Code output
+- Optional local history storage
+
+---
+
+🌐 Custom Marketplace Support
+
+15. Custom Marketplace
+
+- User-defined marketplace support
+- Used as fallback after:
+  - VS Code Marketplace
+  - Open VSX
+
+---
+
+❓ Unknown Extensions Handling
+
+16. Unknown Extensions
+
+If not found in marketplaces:
+
+- Provide install URL
+- Add custom marketplace
+- Ignore
+
+---
+
+🧩 Public Share Mode
+
+17. Public Share Profile
+
+- Separate from private backup
+- Only safe settings included:
+  - editor config
+  - extension list
+  - snippets
+
+---
+
+🏁 Summary
+
+This patch evolves the extension from:
+
+«a simple settings sync tool»
+
+into:
+
+«a secure, controllable, and transparent environment sync system»
+
+---
+
+🚀 Recommended Next Steps
+
+- Implement diff engine
+- Add sync preview UI
+- Add extension confirmation dialog
+- Add sanitization pipeline
+- Add manifest/index system
