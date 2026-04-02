@@ -1,12 +1,30 @@
 @echo off
 setlocal
 
-set "NO_BUMP="
+set "BUMP_MODE=none"
 set "NO_PAUSE="
 
-if /i "%~1"=="--no-bump" set "NO_BUMP=1"
-if /i "%~1"=="--no-pause" set "NO_PAUSE=1"
-if /i "%~2"=="--no-pause" set "NO_PAUSE=1"
+for %%A in (%*) do (
+    if /i "%%~A"=="--no-bump" set "BUMP_MODE=none"
+    if /i "%%~A"=="--bump-patch" set "BUMP_MODE=patch"
+    if /i "%%~A"=="--bump-minor" set "BUMP_MODE=minor"
+    if /i "%%~A"=="--bump-major" set "BUMP_MODE=major"
+    if /i "%%~A"=="--no-pause" set "NO_PAUSE=1"
+    if /i "%%~A"=="--help" set "SHOW_HELP=1"
+)
+
+if /i "%SHOW_HELP%"=="1" (
+    echo Usage: publish.bat [options]
+    echo.
+    echo Options:
+    echo   --no-bump      Publish current package version ^(default^)
+    echo   --bump-patch   Bump patch version before publish
+    echo   --bump-minor   Bump minor version before publish
+    echo   --bump-major   Bump major version before publish
+    echo   --no-pause     Do not pause at the end
+    echo.
+    exit /b 0
+)
 
 echo Loading environment variables...
 for %%f in (.env token.env) do (
@@ -24,12 +42,12 @@ if not exist .\node_modules\.bin\vsce.cmd (
     if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 )
 
-if "%NO_BUMP%"=="" (
-    echo Bumping version...
-    call npm version patch --no-git-tag-version
-    if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+if /i "%BUMP_MODE%"=="none" (
+    echo Skipping version bump ^(default mode: publish current version^)
 ) else (
-    echo Skipping version bump (--no-bump)
+    echo Bumping version: %BUMP_MODE%
+    call npm version %BUMP_MODE% --no-git-tag-version
+    if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 )
 
 echo Building and Packaging...
