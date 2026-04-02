@@ -4,7 +4,7 @@ All notable changes to Soloboi's Settings Sync are documented here.
 
 ---
 
-## [1.1.0] - 2026-04-02
+## [1.1.1] - 2026-04-02
 
 ### Added
 - **Sync Preview / Diff**: Preview changes before applying downloads (`soloboisSettingsSync.syncPreview`) and compare local vs remote without applying (`soloboisSettingsSync.showLocalVsRemoteDiff`).

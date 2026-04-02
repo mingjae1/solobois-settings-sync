@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.0.16",
+  "version": "1.1.1",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -290,13 +290,17 @@
           "type": "object",
           "default": {},
           "description": "Custom marketplace registry. Maps domain key (e.g. 'open-vsx.org') to base URL. Example: { \"my-market.example.com\": \"https://my-market.example.com\" }",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "soloboisSettingsSync.marketplaceScanOrder": {
           "type": "array",
           "default": [],
           "description": "Domain keys defining the scan order for marketplace fallback. Earlier entries are checked first.",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "soloboisSettingsSync.customMarketplaceAutoUpdate": {
           "type": "boolean",
@@ -305,7 +309,10 @@
         },
         "soloboisSettingsSync.customMarketplaceUpdateCheck": {
           "type": "string",
-          "enum": ["startup", "disabled"],
+          "enum": [
+            "startup",
+            "disabled"
+          ],
           "default": "disabled",
           "description": "When to check for updates from custom marketplaces. 'startup' checks on activation, 'disabled' disables automatic checks."
         },
@@ -315,13 +322,31 @@
           "description": "List of private/unlisted extensions for sync guidance. Each entry has id, version, optional vsixUrl, localPath, and note.",
           "items": {
             "type": "object",
-            "required": ["id", "version"],
+            "required": [
+              "id",
+              "version"
+            ],
             "properties": {
-              "id": { "type": "string", "description": "Extension ID (publisher.name)" },
-              "version": { "type": "string", "description": "Extension version" },
-              "vsixUrl": { "type": "string", "description": "Direct VSIX download URL for automatic install" },
-              "localPath": { "type": "string", "description": "Local .vsix file path for manual guidance" },
-              "note": { "type": "string", "description": "Optional note for this extension" }
+              "id": {
+                "type": "string",
+                "description": "Extension ID (publisher.name)"
+              },
+              "version": {
+                "type": "string",
+                "description": "Extension version"
+              },
+              "vsixUrl": {
+                "type": "string",
+                "description": "Direct VSIX download URL for automatic install"
+              },
+              "localPath": {
+                "type": "string",
+                "description": "Local .vsix file path for manual guidance"
+              },
+              "note": {
+                "type": "string",
+                "description": "Optional note for this extension"
+              }
             }
           }
         }
