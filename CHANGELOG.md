@@ -6,12 +6,17 @@ All notable changes to Soloboi's Settings Sync are documented here.
 
 ## [Unreleased]
 
-_Add changes for the next release here._
+### Added
+- `setGistId` now accepts both raw Gist IDs and full Gist URLs, then normalizes/stores the extracted ID automatically.
+
+### Changed
+- README was reorganized into a landing-style layout: quick share/sync onboarding is shown first, while detailed commands/settings are moved into collapsible sections.
 
 <details>
 <summary>한국어 (요약)</summary>
 
-_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+- `setGistId`에서 Gist ID뿐 아니라 Gist URL도 입력받아 자동으로 ID를 추출/저장합니다.
+- README를 랜딩 페이지 스타일로 재구성했습니다. 상단에는 빠른 공유/동기화만 노출하고, 상세 명령/설정은 접이식으로 정리했습니다.
 
 </details>
 

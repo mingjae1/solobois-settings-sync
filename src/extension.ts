@@ -142,6 +142,37 @@ function normalizeIgnoredSettings(keys: string[]): string[] {
     return normalized;
 }
 
+function parseGistIdFromInput(value: string): string | null {
+    const input = (value || '').trim();
+    if (!input) {
+        return '';
+    }
+
+    const directMatch = input.match(/^[a-f0-9]{8,}$/i);
+    if (directMatch) {
+        return directMatch[0];
+    }
+
+    try {
+        const url = new URL(input);
+        const host = url.hostname.toLowerCase();
+        if (host === 'gist.github.com' || host === 'www.gist.github.com' || host === 'gist.githubusercontent.com') {
+            const segments = url.pathname.split('/').filter(Boolean);
+            for (let index = segments.length - 1; index >= 0; index--) {
+                const segment = segments[index];
+                if (/^[a-f0-9]{8,}$/i.test(segment)) {
+                    return segment;
+                }
+            }
+        }
+    } catch {
+        // Not a URL, continue to regex fallback.
+    }
+
+    const embeddedMatch = input.match(/([a-f0-9]{8,})/i);
+    return embeddedMatch ? embeddedMatch[1] : null;
+}
+
 async function runGettingStartedWizard(context: vscode.ExtensionContext): Promise<void> {
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
     const gistId = config.get<string>('gistId');
@@ -977,21 +1008,27 @@ export async function activate(context: vscode.ExtensionContext) {
             const currentId = config.get<string>('gistId') || '';
             const input = await vscode.window.showInputBox({
                 title: 'Set Gist ID',
-                prompt: 'Enter the GitHub Gist ID used for sync.',
+                prompt: 'Enter a GitHub Gist ID or Gist URL used for sync.',
                 value: currentId,
-                placeHolder: 'e.g. abc123def456...',
+                placeHolder: 'e.g. abc123def456... or https://gist.github.com/user/abc123def456',
                 validateInput: (value) => {
-                    if (value && !/^[a-f0-9]+$/i.test(value)) {
-                        return 'Gist ID must be a hexadecimal string.';
+                    const parsed = parseGistIdFromInput(value);
+                    if (value && parsed === null) {
+                        return 'Enter a valid Gist ID or Gist URL.';
                     }
                     return null;
                 }
             });
             if (input !== undefined) {
-                await config.update('gistId', input, vscode.ConfigurationTarget.Global);
+                const parsed = parseGistIdFromInput(input);
+                if (parsed === null) {
+                    vscode.window.showErrorMessage("Soloboi's Settings Sync: Invalid Gist ID/URL.");
+                    return;
+                }
+                await config.update('gistId', parsed, vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
-                if (input) {
-                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${input.substring(0, 8)}...)`);
+                if (parsed) {
+                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${parsed.substring(0, 8)}...)`);
                 } else {
                     vscode.window.showInformationMessage("Soloboi's Settings Sync: Gist ID cleared.");
                 }
