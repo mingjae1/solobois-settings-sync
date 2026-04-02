@@ -6,6 +6,18 @@ All notable changes to Soloboi's Settings Sync are documented here.
 
 ## [Unreleased]
 
+_Add changes for the next release here._
+
+<details>
+<summary>한국어 (요약)</summary>
+
+_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+
+</details>
+
+---
+## [1.1.6] - 2026-04-03
+
 ### Fixed
 - `publish.bat` argument parsing is now order-independent. Running options in different order (for example, `--no-pause --no-bump`) no longer causes unintended version bumps.
 - `publish.bat` default behavior is now explicit: publish current version without bump unless a bump flag is provided.
@@ -19,6 +31,8 @@ All notable changes to Soloboi's Settings Sync are documented here.
 - 버전 증가 옵션을 명시 플래그로 추가했습니다: `--bump-patch`, `--bump-minor`, `--bump-major`.
 
 </details>
+
+---
 
 ---
 ## [1.1.4] - 2026-04-03

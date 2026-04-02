@@ -5,7 +5,7 @@ import * as cp from 'child_process';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { AuthManager } from './auth';
-import { GistService } from './gistService';
+import { GistData, GistService } from './gistService';
 import { SettingsManager } from './settingsManager';
 import { SoloboiSyncTreeProvider } from './treeProvider';
 import { detectPlatform, Platform } from './platformDetector';
