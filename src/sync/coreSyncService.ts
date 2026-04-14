@@ -26,6 +26,7 @@ import {
     buildExtensionContributionMap,
     installExtensionViaCLI
 } from './helpers';
+import { reviewFilesForSensitiveUpload } from './uploadPrivacyReview';
 export { applyGistData } from './applyData';
 import { applyGistData } from './applyData';
 export {
@@ -157,9 +158,24 @@ export async function uploadSettings(ctx: AppContext, context: vscode.ExtensionC
             return false;
         }
 
-        const filesForCreate = withSyncMetadataFiles(baseFiles);
-
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const isPublicGist = config.get<boolean>('publicGist', false);
+        const privacyReviewed = await reviewFilesForSensitiveUpload(baseFiles, {
+            isPublicGist,
+            silent,
+            outputChannel
+        });
+        if (privacyReviewed.cancelled) {
+            if (!silent) {
+                vscode.window.showWarningMessage("Soloboi's Settings Sync: Upload cancelled by privacy review.");
+            }
+            updateStatusBar('idle');
+            logWarn('Upload cancelled by privacy review.');
+            return false;
+        }
+        const reviewedFiles = privacyReviewed.files;
+
+        const filesForCreate = withSyncMetadataFiles(reviewedFiles);
         let gistId = config.get<string>('gistId');
 
         if (!gistId) {
@@ -174,7 +190,7 @@ export async function uploadSettings(ctx: AppContext, context: vscode.ExtensionC
         const hostname = os.hostname();
         const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
         const currentGist = await gistService.getGist(gistId, token);
-        const files = withSyncMetadataFiles(baseFiles, currentGist?.files);
+        const files = withSyncMetadataFiles(reviewedFiles, currentGist?.files);
         const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
 
         await gistService.updateGist(gistId, files, token, description, filesToDelete);

@@ -4,12 +4,17 @@ All notable user-facing changes to Soloboi's Settings Sync are documented here.
 
 ## [Unreleased]
 
-_Add changes for the next release here._
+### Fixed
+- Added pre-upload sensitive-content review for sync files, with per-file actions: mask, exclude, keep original, or cancel upload.
+- Applied the same sensitive-content review flow to both base sync files and `additionalFiles`.
+- In silent uploads, automatically masks detected sensitive content before upload.
 
 <details>
 <summary>한국어 (요약)</summary>
 
-_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+- 업로드 전 민감정보 검토 단계를 추가하고 파일별로 `마스킹/제외/원본 유지/업로드 취소`를 선택할 수 있게 했습니다.
+- 기본 동기화 파일과 `additionalFiles` 모두에 동일한 민감정보 검토 흐름을 적용했습니다.
+- 자동 업로드(silent)에서는 감지된 민감정보를 자동 마스킹 후 업로드하도록 변경했습니다.
 
 </details>
 
