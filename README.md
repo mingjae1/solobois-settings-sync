@@ -8,7 +8,7 @@ Sync once, work everywhere.
 [![Open VSX Downloads](https://img.shields.io/open-vsx/dt/soloboi/solobois-settings-sync?style=for-the-badge&label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/soloboi/solobois-settings-sync)
 [![Open VSX Version](https://img.shields.io/open-vsx/v/soloboi/solobois-settings-sync?style=for-the-badge&label=Open%20VSX)](https://open-vsx.org/extension/soloboi/solobois-settings-sync)
 [![GitHub Stars](https://img.shields.io/github/stars/mingjae1/solobois-settings-sync?style=for-the-badge&label=GitHub%20Stars)](https://github.com/mingjae1/solobois-settings-sync/stargazers)
-[![License MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](https://github.com/mingjae1/solobois-settings-sync/blob/main/LICENSE.md)
+[![GitHub License](https://img.shields.io/github/license/mingjae1/solobois-settings-sync?style=for-the-badge)](https://github.com/mingjae1/solobois-settings-sync/blob/main/LICENSE.md)
 [![GitHub Release](https://img.shields.io/github/v/release/mingjae1/solobois-settings-sync?style=for-the-badge&label=GitHub%20Release)](https://github.com/mingjae1/solobois-settings-sync/releases)
 [![GitHub Issues](https://img.shields.io/github/issues/mingjae1/solobois-settings-sync?style=for-the-badge&label=Issues)](https://github.com/mingjae1/solobois-settings-sync/issues)
 [![Last Commit](https://img.shields.io/github/last-commit/mingjae1/solobois-settings-sync?style=for-the-badge&label=Last%20Commit)](https://github.com/mingjae1/solobois-settings-sync/commits/main)
