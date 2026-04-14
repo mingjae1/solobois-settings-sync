@@ -294,6 +294,7 @@ export function isManagedGistFile(filename: string): boolean {
         || normalized === 'sync-index.json'
         || normalized === 'mcp_config.json'
         || normalized === 'browserallowlist.txt'
+        || normalized.startsWith('additional__')
         || /^antigravity.*\.json$/i.test(filename)
         || /\.code-snippets$/i.test(filename);
 }

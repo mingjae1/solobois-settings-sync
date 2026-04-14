@@ -196,22 +196,10 @@ export class SettingsPathResolver {
         const homeDir = process.env.HOME || process.env.USERPROFILE || '';
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
         const entries = config.get<string[]>('additionalFiles') || [];
-        const resolvedExisting = entries
+        return Array.from(new Set(entries
             .map(p => (p.startsWith('~/') && homeDir) ? path.join(homeDir, p.slice(2)) : p)
-            .filter(p => fs.existsSync(p));
-
-        const unique: string[] = [];
-        const seenBasenames = new Set<string>();
-        for (const filePath of resolvedExisting) {
-            const basename = path.basename(filePath);
-            if (seenBasenames.has(basename)) {
-                console.warn(`[SettingsSync] Duplicate basename in additionalFiles: ${basename} (skipping ${filePath})`);
-                continue;
-            }
-            seenBasenames.add(basename);
-            unique.push(filePath);
-        }
-        return unique;
+            .filter(Boolean)
+            .filter(p => fs.existsSync(p))));
     }
 
     /**

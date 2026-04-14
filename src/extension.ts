@@ -240,6 +240,13 @@ export async function activate(context: vscode.ExtensionContext) {
                 event.affectsConfiguration('soloboisSettingsSync.gistId') ||
                 event.affectsConfiguration('soloboisSettingsSync.ignoredSettings') ||
                 event.affectsConfiguration('soloboisSettingsSync.ignoredExtensions');
+            const watcherConfigChanged =
+                event.affectsConfiguration('soloboisSettingsSync.autoSync') ||
+                event.affectsConfiguration('soloboisSettingsSync.autoUploadOnChange') ||
+                event.affectsConfiguration('soloboisSettingsSync.autoUploadDelay') ||
+                event.affectsConfiguration('soloboisSettingsSync.userDataDir') ||
+                event.affectsConfiguration('soloboisSettingsSync.pathStrategy') ||
+                event.affectsConfiguration('soloboisSettingsSync.additionalFiles');
 
             if (profileChanged) {
                 const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -254,6 +261,10 @@ export async function activate(context: vscode.ExtensionContext) {
             if (managedValueChanged) {
                 await saveCurrentProfileFromGlobal();
                 treeProvider.refresh();
+            }
+
+            if (watcherConfigChanged && appCtx) {
+                setupFileWatchers(appCtx, context, autoUploadController, treeProvider);
             }
         })
     );

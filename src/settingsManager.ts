@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as cp from 'child_process';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { sensitiveDataGuard } from './sensitiveDataGuard';
 import { SettingsPathResolver } from './settings/pathResolver';
 import { parseJsonc } from './utils';
@@ -209,6 +210,50 @@ export class SettingsManager {
 
     getAdditionalFilePaths(): string[] { return this._paths.getAdditionalFilePaths(); }
 
+    getConfiguredAdditionalFilePaths(): string[] {
+        const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const entries = config.get<string[]>('additionalFiles') || [];
+        return Array.from(new Set(entries
+            .map(p => (p.startsWith('~/') && homeDir) ? path.join(homeDir, p.slice(2)) : p)
+            .filter(p => typeof p === 'string' && p.trim().length > 0)));
+    }
+
+    private buildAdditionalFileKey(filePath: string, basenameCounts: Map<string, number>): string {
+        const basename = path.basename(filePath);
+        const count = basenameCounts.get(basename) || 0;
+        if (count <= 1) {
+            // Keep legacy key format when basename is unique.
+            return `additional__${basename}`;
+        }
+
+        // Add a stable suffix when there are basename collisions.
+        const digest = crypto
+            .createHash('sha1')
+            .update(path.resolve(filePath))
+            .digest('hex')
+            .slice(0, 8);
+        return `additional__${basename}__${digest}`;
+    }
+
+    private buildAdditionalFileKeyMap(includeMissingFiles: boolean): Map<string, string> {
+        const sourcePaths = includeMissingFiles
+            ? this.getConfiguredAdditionalFilePaths()
+            : this.getAdditionalFilePaths();
+        const basenameCounts = new Map<string, number>();
+        for (const filePath of sourcePaths) {
+            const basename = path.basename(filePath);
+            basenameCounts.set(basename, (basenameCounts.get(basename) || 0) + 1);
+        }
+
+        const keyMap = new Map<string, string>();
+        for (const filePath of sourcePaths) {
+            const key = this.buildAdditionalFileKey(filePath, basenameCounts);
+            keyMap.set(key, filePath);
+        }
+        return keyMap;
+    }
+
     /**
      * Read all additional files configured by the user.
      * Returns a map of Gist file keys to file contents.
@@ -216,8 +261,7 @@ export class SettingsManager {
      */
     readAdditionalFiles(): Record<string, string> {
         const result: Record<string, string> = {};
-        for (const filePath of this.getAdditionalFilePaths()) {
-            const key = 'additional__' + path.basename(filePath);
+        for (const [key, filePath] of this.buildAdditionalFileKeyMap(false)) {
             try {
                 result[key] = fs.readFileSync(filePath, 'utf8');
             } catch (err) {
@@ -233,19 +277,24 @@ export class SettingsManager {
      * the configured additionalFiles paths by basename. Silently skips if no match.
      */
     writeAdditionalFile(filename: string, content: string): boolean {
-        const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-        const entries = config.get<string[]>('additionalFiles') || [];
-        const basename = filename.replace(/^additional__/, '');
-        const match = entries.find(p => path.basename(p) === basename);
-        if (!match) return false;
-        const resolved = (match.startsWith('~/') && homeDir) ? path.join(homeDir, match.slice(2)) : match;
+        const keyMap = this.buildAdditionalFileKeyMap(true);
+        let resolved = keyMap.get(filename);
+        if (!resolved) {
+            // Backward compatibility for legacy key format: additional__<basename>.
+            const raw = filename.replace(/^additional__/, '');
+            const basename = raw.replace(/__[a-f0-9]{8}$/i, '');
+            resolved = this.getConfiguredAdditionalFilePaths()
+                .find(p => path.basename(p) === basename);
+        }
+        if (!resolved) { return false; }
+
         if (fs.existsSync(resolved)) {
             const current = fs.readFileSync(resolved, 'utf8');
             if (current === content) {
                 return false;
             }
         }
+        this.ensureDir(path.dirname(resolved));
         fs.writeFileSync(resolved, content, 'utf8');
         return true;
     }

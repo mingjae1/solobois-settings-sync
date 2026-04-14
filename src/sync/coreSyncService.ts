@@ -43,6 +43,7 @@ export {
 } from './helpers';
 
 let fileWatcher: vscode.FileSystemWatcher | undefined;
+let activeWatchers: vscode.FileSystemWatcher[] = [];
 let isUploading = false;
 let isDownloading = false;
 let isApplyingRemoteChanges = false;
@@ -424,6 +425,12 @@ export function setupFileWatchers(ctx: AppContext, context: vscode.ExtensionCont
     treeProvider: SoloboiSyncTreeProvider
 ): void {
     bindCtx(ctx);
+
+    for (const watcher of activeWatchers) {
+        watcher.dispose();
+    }
+    activeWatchers = [];
+
     const settingsDir = settingsManager.getUserSettingsDir();
     if (!settingsDir) {
         return;
@@ -465,6 +472,20 @@ export function setupFileWatchers(ctx: AppContext, context: vscode.ExtensionCont
         antigravityWatcher = vscode.workspace.createFileSystemWatcher(antiPattern);
     }
 
+    const additionalFileWatchers: vscode.FileSystemWatcher[] = [];
+    for (const additionalFilePath of settingsManager.getConfiguredAdditionalFilePaths()) {
+        const dirname = path.dirname(additionalFilePath);
+        const basename = path.basename(additionalFilePath);
+        if (!dirname || !basename) {
+            continue;
+        }
+        const additionalPattern = new vscode.RelativePattern(
+            vscode.Uri.file(dirname),
+            basename
+        );
+        additionalFileWatchers.push(vscode.workspace.createFileSystemWatcher(additionalPattern));
+    }
+
     const scheduleUpload = async (reason: string) => {
         if (isDownloading || isApplyingRemoteChanges || autoUploadController.isSuspended()) {
             return;
@@ -498,6 +519,7 @@ export function setupFileWatchers(ctx: AppContext, context: vscode.ExtensionCont
     });
 
     context.subscriptions.push(fileWatcher);
+    activeWatchers.push(fileWatcher);
 
     if (snippetsWatcher) {
         snippetsWatcher.onDidChange(() => {
@@ -510,6 +532,7 @@ export function setupFileWatchers(ctx: AppContext, context: vscode.ExtensionCont
             void scheduleUpload('snippets deleted');
         });
         context.subscriptions.push(snippetsWatcher);
+        activeWatchers.push(snippetsWatcher);
     }
 
     if (antigravityWatcher) {
@@ -523,6 +546,21 @@ export function setupFileWatchers(ctx: AppContext, context: vscode.ExtensionCont
             void scheduleUpload('antigravity config deleted');
         });
         context.subscriptions.push(antigravityWatcher);
+        activeWatchers.push(antigravityWatcher);
+    }
+
+    for (const additionalWatcher of additionalFileWatchers) {
+        additionalWatcher.onDidChange(() => {
+            void scheduleUpload('additional file changed');
+        });
+        additionalWatcher.onDidCreate(() => {
+            void scheduleUpload('additional file created');
+        });
+        additionalWatcher.onDidDelete(() => {
+            void scheduleUpload('additional file deleted');
+        });
+        context.subscriptions.push(additionalWatcher);
+        activeWatchers.push(additionalWatcher);
     }
 }
 
@@ -668,7 +706,10 @@ export function buildGistFiles(ctx: AppContext): Record<string, { content: strin
     // Additional user-configured files (e.g. eclipse-formatter.xml)
     const additionalFiles = settingsManager.readAdditionalFiles();
     for (const [key, content] of Object.entries(additionalFiles)) {
-        files[key] = { content };
+        const sanitizedContent = isPublicGist
+            ? sensitiveDataGuard.redactJsonString(content, 'public').result
+            : content;
+        files[key] = { content: sanitizedContent };
     }
 
     if (Object.keys(files).length === 0) {

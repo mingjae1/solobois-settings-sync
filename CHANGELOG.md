@@ -8,11 +8,17 @@ All notable user-facing changes to Soloboi's Settings Sync are documented here.
 - Improved README landing page with quick start, feature summary, and doc navigation links.
 - Normalized command ID notation in English/Korean docs for private extension workflows.
 
+### Fixed
+- Added `additional__*` managed-file deletion handling so removed additional files are also removed from Gist.
+- Applied public-redaction flow to `additionalFiles` payloads before uploading to a public Gist.
+
 <details>
 <summary>한국어 (요약)</summary>
 
 - README 랜딩 구성을 보강해 빠른 시작, 기능 요약, 문서 이동 링크를 정리했습니다.
 - 영문/국문 문서의 Private Extension 관련 커맨드 표기를 전체 command ID 형식으로 통일했습니다.
+- `additional__*` 파일을 관리 대상 삭제 로직에 포함해, 추가 파일 제거 시 Gist 잔존 파일이 남지 않도록 수정했습니다.
+- Public Gist 업로드 시 `additionalFiles` 내용에도 마스킹 로직을 적용했습니다.
 
 </details>
 
