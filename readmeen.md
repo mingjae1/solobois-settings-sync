@@ -2,11 +2,12 @@
 
 Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 
-[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/soloboi.solobois-settings-sync?style=for-the-badge&label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
-[![VS Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/soloboi.solobois-settings-sync?style=for-the-badge&label=Installs)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
-[![VS Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/soloboi.solobois-settings-sync?style=for-the-badge&label=Rating)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync&ssr=false#review-details)
+[![VS Marketplace Version](https://vsmarketplacebadges.dev/version/soloboi.solobois-settings-sync.svg?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
+[![VS Marketplace Installs](https://vsmarketplacebadges.dev/installs/soloboi.solobois-settings-sync.svg?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
+[![VS Marketplace Rating](https://vsmarketplacebadges.dev/rating/soloboi.solobois-settings-sync.svg?style=for-the-badge)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync&ssr=false#review-details)
 [![Open VSX Downloads](https://img.shields.io/open-vsx/dt/soloboi/solobois-settings-sync?style=for-the-badge&label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/soloboi/solobois-settings-sync)
 [![GitHub Stars](https://img.shields.io/github/stars/mingjae1/solobois-settings-sync?style=for-the-badge&label=GitHub%20Stars)](https://github.com/mingjae1/solobois-settings-sync/stargazers)
+[![License MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](https://github.com/mingjae1/solobois-settings-sync/blob/main/LICENSE.md)
 
 ## Why this extension?
 - Keep the same dev environment across laptop, desktop, and remote containers.
@@ -71,7 +72,7 @@ Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 </details>
 
 ## Language Switch
-- [??蹂λ윟????쒖굣??(./README.kr.md)
+- [한국어 문서](./readmekr.md)
 - [Root README](./README.md)
 
 ## Changelog
