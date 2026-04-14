@@ -19,6 +19,9 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Secrets and local env
 token.env
@@ -26,6 +29,9 @@ token.env
 .env.local
 .env.*.local
 *.env
+
+# Local scripts (do not publish)
+*.bat
 
 # OS / IDE noise
 Thumbs.db
