@@ -52,9 +52,9 @@ Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 - Toggle default visibility (public/private) for newly created sync gists.
 
 ### Private Extensions
-- Register/remove: `registerPrivateExtension`, `removePrivateExtension`
-- Auto-detect: `autoDetectPrivateExtensions`
-- Upload VSIX to Gist: `uploadPrivateVsixToGist`
+- Register/remove: `soloboisSettingsSync.registerPrivateExtension`, `soloboisSettingsSync.removePrivateExtension`
+- Auto-detect: `soloboisSettingsSync.autoDetectPrivateExtensions`
+- Upload VSIX to Gist: `soloboisSettingsSync.uploadPrivateVsixToGist`
 
 ### Advanced Sync Options (Settings)
 - `syncPreview`: show change summary before applying download

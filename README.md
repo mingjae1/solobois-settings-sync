@@ -13,9 +13,28 @@ Sync once, work everywhere.
 [![GitHub Issues](https://img.shields.io/github/issues/mingjae1/solobois-settings-sync?style=for-the-badge&label=Issues)](https://github.com/mingjae1/solobois-settings-sync/issues)
 [![Last Commit](https://img.shields.io/github/last-commit/mingjae1/solobois-settings-sync?style=for-the-badge&label=Last%20Commit)](https://github.com/mingjae1/solobois-settings-sync/commits/main)
 
+Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
+
+## What You Get
+- Sync settings, keybindings, snippets, extensions, and optional extra files.
+- Compare local vs remote before apply.
+- Restore from gist history when needed.
+- Share a masked snapshot link for onboarding or demos.
+
+## Quick Start
+1. Run `Soloboi's Settings Sync: Login to GitHub`
+2. Run `Soloboi's Settings Sync: Upload Settings to Gist`
+3. On another machine, run `Soloboi's Settings Sync: Set Gist ID`
+4. Run `Soloboi's Settings Sync: Download Settings from Gist`
+
 ## Language
 - [한국어 문서 (readmekr.md)](./readmekr.md)
 - [English Docs (readmeen.md)](./readmeen.md)
+
+## Documentation
+- Full English guide: [readmeen.md](./readmeen.md)
+- 전체 한국어 가이드: [readmekr.md](./readmekr.md)
+- Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Install
 - VS Marketplace: https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync

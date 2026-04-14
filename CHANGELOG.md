@@ -4,12 +4,15 @@ All notable user-facing changes to Soloboi's Settings Sync are documented here.
 
 ## [Unreleased]
 
-_Add changes for the next release here._
+### Changed
+- Improved README landing page with quick start, feature summary, and doc navigation links.
+- Normalized command ID notation in English/Korean docs for private extension workflows.
 
 <details>
 <summary>한국어 (요약)</summary>
 
-_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+- README 랜딩 구성을 보강해 빠른 시작, 기능 요약, 문서 이동 링크를 정리했습니다.
+- 영문/국문 문서의 Private Extension 관련 커맨드 표기를 전체 command ID 형식으로 통일했습니다.
 
 </details>
 
