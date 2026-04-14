@@ -2,13 +2,13 @@ import * as https from "https";
 
 /**
  * [프로토타입] GitHub 디바이스 코드 인증 폴링 헬퍼.
- * 자격증명(비밀번호/OTP) 입력은 절대 자동화하지 않으며, 오직 토큰 발급 여부만 주기적으로 확인한다.
+ * 자격증명(비밀번호/OTP) 입력이 원활히 작동하지 않을 때 직접 토큰 발급 상태를 주기적으로 확인한다.
  *
  * 사용법:
  *   1. GitHub OAuth App에서 디바이스 코드를 요청해 deviceCode, intervalSeconds, expiresInSeconds를 받는다.
- *   2. vscode.env.openExternal()로 사용자에게 브라우저를 열어 직접 인증하게 한다.
- *   3. pollGitHubDeviceAuthorization(options) 호출 → status가 'approved'가 될 때까지 자동으로 폴링.
- *   4. status === 'approved'이면 accessToken을 사용해 API를 호출할 수 있다.
+ *   2. vscode.env.openExternal()을 사용하여 브라우저를 열어 직접 인증하게 한다.
+ *   3. pollGitHubDeviceAuthorization(options) 호출 시 status가 'approved'가 될 때까지 자동으로 폴링.
+ *   4. status === 'approved'이면 accessToken을 이용해 API를 호출할 수 있다.
  *
  * @prototype
  * @status:experimental

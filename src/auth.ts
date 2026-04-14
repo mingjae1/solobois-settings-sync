@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as https from 'https';
-import { pollGitHubDeviceAuthorization } from './prototypes/playwrightAuthHelper';
+import { pollGitHubDeviceAuthorization } from './prototypes/githubDevicePoller';
 
 const AUTH_PROVIDER_ID = 'github';
 const SCOPES = ['gist'];
@@ -24,47 +24,84 @@ type GitHubUserResponse = {
   name?: string;
 };
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return 'Unknown error';
+}
+
+function isUserCancellationError(error: unknown): boolean {
+  if (error instanceof vscode.CancellationError) {
+    return true;
+  }
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes('cancelled') ||
+    message.includes('canceled') ||
+    message.includes('user did not consent')
+  );
+}
+
 /**
  * GitHub Authentication module using VS Code's built-in GitHub auth provider.
  * Falls back to GitHub device code login when the built-in provider fails and a client ID is available.
  */
 export class AuthManager {
   private session: vscode.AuthenticationSession | null = null;
+  private _loggedOut = false;
   private readonly onDidChangeEmitter =
     new vscode.EventEmitter<vscode.AuthenticationSession | null>();
   public readonly onDidChange = this.onDidChangeEmitter.event;
 
   constructor(private context: vscode.ExtensionContext) {
     context.subscriptions.push(
-      vscode.authentication.onDidChangeSessions(async (e) => {
+      vscode.authentication.onDidChangeSessions((e) => {
         if (e.provider.id === AUTH_PROVIDER_ID) {
-          await this.refreshSession();
+          void this.refreshSession().catch((error: unknown) => {
+            vscode.window.showWarningMessage(
+              `Soloboi's Settings Sync: Failed to refresh auth session (${getErrorMessage(error)}).`,
+            );
+          });
         }
       }),
     );
   }
 
   async login(): Promise<vscode.AuthenticationSession | null> {
+    this._loggedOut = false;
     try {
       this.session = await vscode.authentication.getSession(
         AUTH_PROVIDER_ID,
         SCOPES,
         { createIfNone: true },
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (isUserCancellationError(err)) {
+        this.session = null;
+        return null;
+      }
       this.session = await this.loginWithDeviceCodeFallback(err);
     }
 
     this.onDidChangeEmitter.fire(this.session);
     if (this.session) {
       vscode.window.showInformationMessage(
-        `Soloboi's Settings Sync: GitHub??濡쒓렇?몃릺?덉뒿?덈떎. (${this.session.account.label})`,
+        `Soloboi's Settings Sync: GitHub에 로그인했습니다. (${this.session.account.label})`,
       );
     }
     return this.session;
   }
 
   async getSessionSilent(): Promise<vscode.AuthenticationSession | null> {
+    if (this._loggedOut) {
+      this.session = null;
+      return null;
+    }
+
     try {
       this.session = (await vscode.authentication.getSession(
         AUTH_PROVIDER_ID,
@@ -84,6 +121,9 @@ export class AuthManager {
   }
 
   async getToken(): Promise<string | null> {
+    if (this._loggedOut) {
+      return null;
+    }
     const session = this.session ?? (await this.getSessionSilent());
     return session?.accessToken ?? null;
   }
@@ -101,11 +141,12 @@ export class AuthManager {
   }
 
   async logout(): Promise<void> {
+    this._loggedOut = true;
     this.session = null;
     await this.clearStoredDeviceCodeSession();
     this.onDidChangeEmitter.fire(null);
     vscode.window.showInformationMessage(
-      'Soloboi\'s Settings Sync: GitHub?먯꽌 濡쒓렇?꾩썐?섏뿀?듬땲??',
+      "Soloboi's Settings Sync: GitHub에서 로그아웃했습니다.",
     );
   }
 
@@ -118,12 +159,12 @@ export class AuthManager {
   }
 
   private async loginWithDeviceCodeFallback(
-    originalError: Error,
+    originalError: unknown,
   ): Promise<vscode.AuthenticationSession | null> {
     const clientId = this.getDeviceCodeClientId();
     if (!clientId) {
       vscode.window.showErrorMessage(
-        `Soloboi's Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${originalError.message}`,
+        `Soloboi's Settings Sync: GitHub 로그인에 실패했습니다. ${getErrorMessage(originalError)}`,
       );
       return null;
     }
@@ -135,18 +176,33 @@ export class AuthManager {
       }
 
       const verificationUrl = deviceCode.verification_uri_complete || deviceCode.verification_uri;
-      await vscode.env.openExternal(vscode.Uri.parse(verificationUrl));
+      const opened = await vscode.env.openExternal(vscode.Uri.parse(verificationUrl));
+      if (!opened) {
+        throw new Error('Failed to open GitHub verification page in your browser.');
+      }
 
       const action = deviceCode.user_code ? 'Copy Code' : undefined;
       const prompt = deviceCode.user_code
-        ? `釉뚮씪?곗??먯꽌 GitHub ?몄쬆???꾨즺?섏꽭?? 肄붾뱶: ${deviceCode.user_code}`
-        : '釉뚮씪?곗??먯꽌 GitHub ?몄쬆???꾨즺?섏꽭??';
+        ? `브라우저에서 GitHub 인증을 완료해주세요. 코드: ${deviceCode.user_code}`
+        : '브라우저에서 GitHub 인증을 완료해주세요.';
       if (action) {
-        vscode.window.showInformationMessage(prompt, action).then(selection => {
-          if (selection === action && deviceCode.user_code) {
-            void vscode.env.clipboard.writeText(deviceCode.user_code);
-          }
-        });
+        void vscode.window.showInformationMessage(prompt, action)
+          .then(async selection => {
+            if (selection === action && deviceCode.user_code) {
+              try {
+                await vscode.env.clipboard.writeText(deviceCode.user_code);
+              } catch (clipboardError: unknown) {
+                vscode.window.showWarningMessage(
+                  `Soloboi's Settings Sync: Failed to copy code to clipboard (${getErrorMessage(clipboardError)}).`,
+                );
+              }
+            }
+          })
+          .then(undefined, (messageError: unknown) => {
+            vscode.window.showWarningMessage(
+              `Soloboi's Settings Sync: Failed to show copy-code prompt (${getErrorMessage(messageError)}).`,
+            );
+          });
       } else {
         vscode.window.showInformationMessage(prompt);
       }
@@ -172,9 +228,9 @@ export class AuthManager {
 
       await this.storeDeviceCodeSession(session);
       return session;
-    } catch (err: any) {
+    } catch (err: unknown) {
       vscode.window.showErrorMessage(
-        `Soloboi's Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${err.message}`,
+        `Soloboi's Settings Sync: GitHub 로그인에 실패했습니다. ${getErrorMessage(err)}`,
       );
       return null;
     }
@@ -298,6 +354,9 @@ export class AuthManager {
       });
 
       request.on('error', reject);
+      request.setTimeout(15000, () => {
+        request.destroy(new Error('GitHub authentication request timed out.'));
+      });
       if (options.body) {
         request.write(options.body);
       }

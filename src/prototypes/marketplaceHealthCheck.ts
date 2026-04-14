@@ -1,19 +1,19 @@
 import * as https from "https";
 
 /**
- * [프로토타입] VS Code 마켓플레이스에서 익스텐션의 상태(활성/삭제/deprecated)를 HTTPS GET으로 확인한다.
+ * [프로토타입] VS Code 마켓플레이스에서 익스텐션의 상태(활성/미활성/deprecated)를 HTTPS GET으로 확인한다.
  *
  * 사용법:
  *   1. 확인할 익스텐션 목록을 { publisher, name } 형태로 준비한다.
  *      예: [{ publisher: 'soloboi', name: 'solobois-settings-sync' }]
  *   2. checkMarketplaceHealth({ extensions }) 호출.
  *   3. 결과의 status를 확인:
- *      - 'active'    → 마켓플레이스에 정상적으로 존재
- *      - 'deprecated'→ deprecated/unpublished 된 익스텐션
- *      - 'missing'   → 404 또는 찾을 수 없음
- *      - 'unknown'   → 네트워크 오류 또는 판단 불가
+ *      - 'active'    : 마켓플레이스에 정상적으로 존재
+ *      - 'deprecated': deprecated/unpublished 된 익스텐션
+ *      - 'missing'   : 404 또는 찾을 수 없음
+ *      - 'unknown'   : 네트워크 오류 또는 판단 불가
  *
- * 실제 익스텐션 적용 시: 동기화된 extensions.json의 ID 목록에 이 헬스체크를 연결하면
+ * 실제 익스텐션 적용 시 동기화된 extensions.json의 ID 목록과 이 헬스체크를 연결하면
  * 더 이상 존재하지 않는 익스텐션을 자동으로 감지할 수 있다.
  *
  * @prototype

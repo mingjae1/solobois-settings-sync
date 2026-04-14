@@ -3,14 +3,14 @@ import { spawn } from "child_process";
 import * as path from "path";
 
 /**
- * [프로토타입] 웹 페이지의 특정 UI 요소(HTML + 계산된 CSS)를 Playwright로 추출해 VS Code 스니펫으로 저장한다.
+ * [프로토타입] 웹사이트의 특정 UI 요소(HTML + 계산된 CSS)를 Playwright로 추출해 VS Code 스니펫으로 변환한다.
  *
  * 사용법:
- *   1. 참고하고 싶은 웹 페이지 URL과 대상 요소의 CSS 셀렉터를 준비한다.
+ *   1. 참고하고 싶은 웹사이트 URL과 대상 요소의 CSS 셀렉터를 준비한다.
  *      예: url = 'https://example.com', selector = '.hero-button'
- *   2. importWebSnippet({ url, selector, name: '내버튼', prefix: 'hero-btn', outputPath: '...' }) 호출.
- *   3. outputPath에 VS Code 스니펫 JSON 파일이 생성된다.
- *   4. 생성된 파일을 VS Code 사용자 스니펫 디렉터리에 복사하면 바로 자동완성에서 사용 가능.
+ *   2. importWebSnippet({ url, selector, name: '버튼', prefix: 'hero-btn', outputPath: '...' }) 호출.
+ *   3. outputPath에 VS Code 스니펫 JSON 파일을 생성한다.
+ *   4. 생성된 파일을 VS Code 사용자 스니펫 디렉토리에 복사하면 바로 자동완성에서 사용 가능.
  *
  * 주의: Playwright(`playwright` npm 패키지)가 설치되어 있어야 한다.
  *

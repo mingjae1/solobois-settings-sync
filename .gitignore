@@ -1,51 +1,44 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build artifacts
 out/
 dist/
-plan/
-.vscode/
 *.vsix
 
-# Scripts (Local development)
-*.bat
-fetch_gist.js
+# Local working folders
+plan/
+.history/
+.claude/
+.playwright-mcp/
 
-# Environment / Secret files
-*.env
-token.env
-.env.local
-.env.*.local
-
-# Test output
+# VS Code test output
 .vscode-test/
 coverage/
 
-# OS files
+# Logs
+*.log
+npm-debug.log*
+
+# Secrets and local env
+token.env
+.env
+.env.local
+.env.*.local
+*.env
+
+# OS / IDE noise
 Thumbs.db
 .DS_Store
-
-# Editor / IDE
 .idea/
 .project
 .settings/
 *.swp
 *.swo
 
-# Log files
-*.log
-npm-debug.log*
-
-# Workspace settings (keep core config, ignore local state)
+# Workspace settings (keep shareable configs only)
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
-.history/
-*.docx
-*.txt
-.claude/
-.playwright-mcp/
-marketplace-screenshot.png

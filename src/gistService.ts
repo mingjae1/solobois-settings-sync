@@ -1,284 +1,119 @@
-import * as https from "https";
+import * as fs from 'fs';
+import { GitHubHttpClient } from './gist/githubHttpClient';
 
 export interface GistFile {
-  filename: string;
-  content: string;
+    filename: string;
+    content: string;
 }
 
 export interface GistData {
-  id: string;
-  description: string;
-  updated_at: string;
-  files: Record<string, { filename: string; content: string }>;
+    id: string;
+    description: string;
+    updated_at: string;
+    files: Record<string, { filename: string; content: string }>;
 }
-
-type RequestError = Error & {
-  statusCode?: number;
-  code?: string;
-  retryAfterMs?: number;
-};
 
 /**
- * GitHub Gist API service ??create, read, and update Gists.
- * Uses Node.js https module (no external dependencies).
+ * GitHub Gist API service — create, read, and update Gists.
+ * HTTP transport is handled by GitHubHttpClient.
  */
 export class GistService {
-  private readonly REQUEST_TIMEOUT_MS = 15000;
-  private readonly MAX_RETRIES = 2;
-  private readonly GISTS_PER_PAGE = 100;
-  private readonly MAX_GIST_PAGES = 5;
+    private readonly GISTS_PER_PAGE = 100;
+    private readonly MAX_GIST_PAGES = 5;
+    private readonly http = new GitHubHttpClient();
+    private token?: string;
 
-  /**
-   * Fetch all Gists for the authenticated user.
-   */
-  async getUserGists(token: string): Promise<any[]> {
-    const gists: any[] = [];
+    async getUserGists(token: string): Promise<any[]> {
+        this.token = token;
+        const gists: any[] = [];
 
-    for (let page = 1; page <= this.MAX_GIST_PAGES; page++) {
-      const pageResults = await this.request(
-        "GET",
-        `/gists?per_page=${this.GISTS_PER_PAGE}&page=${page}`,
-        token,
-      );
-
-      if (!Array.isArray(pageResults) || pageResults.length === 0) {
-        break;
-      }
-
-      gists.push(...pageResults);
-      if (pageResults.length < this.GISTS_PER_PAGE) {
-        break;
-      }
-    }
-
-    return gists;
-  }
-
-  /**
-   * Fetch a Gist by ID.
-   */
-  async getGist(gistId: string, token: string): Promise<GistData> {
-    return this.request("GET", `/gists/${gistId}`, token);
-  }
-
-  /**
-   * Fetch Gist revision history.
-   */
-  async getGistHistory(gistId: string, token: string): Promise<any[]> {
-    const gist = await this.request("GET", `/gists/${gistId}`, token);
-    return gist.history || [];
-  }
-
-  /**
-   * Fetch a specific revision of a Gist.
-   */
-  async getGistRevision(
-    gistId: string,
-    sha: string,
-    token: string,
-  ): Promise<GistData> {
-    return this.request("GET", `/gists/${gistId}/${sha}`, token);
-  }
-
-  /**
-   * Create a new Gist (Private by default, or Public).
-   * Returns the created Gist data (including the new ID).
-   */
-  async createGist(
-    description: string,
-    files: Record<string, { content: string }>,
-    token: string,
-    isPublic: boolean = false,
-  ): Promise<GistData> {
-    const body = {
-      description,
-      public: isPublic,
-      files,
-    };
-    return this.request("POST", "/gists", token, JSON.stringify(body));
-  }
-
-  /**
-   * Update an existing Gist (PATCH ??does NOT create a new one).
-   */
-  async updateGist(
-    gistId: string,
-    files: Record<string, { content: string }>,
-    token: string,
-    description?: string,
-    filesToDelete: string[] = [],
-  ): Promise<GistData> {
-    const requestFiles: Record<string, { content: string } | null> = { ...files };
-    for (const filename of filesToDelete) {
-      requestFiles[filename] = null;
-    }
-
-    const body: any = { files: requestFiles };
-    if (description) {
-      body.description = description;
-    }
-    return this.request(
-      "PATCH",
-      `/gists/${gistId}`,
-      token,
-      JSON.stringify(body),
-    );
-  }
-
-  /**
-   * Core HTTPS request helper.
-   */
-  private async request(
-    method: string,
-    apiPath: string,
-    token: string,
-    body?: string,
-  ): Promise<any> {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await this.requestOnce(method, apiPath, token, body);
-      } catch (error) {
-        const requestError = error as RequestError;
-        const statusCode = requestError.statusCode;
-        if (!this.shouldRetry(requestError, statusCode) || attempt >= this.MAX_RETRIES) {
-          throw error;
+        for (let page = 1; page <= this.MAX_GIST_PAGES; page++) {
+            const pageResults = await this.http.request(
+                'GET',
+                `/gists?per_page=${this.GISTS_PER_PAGE}&page=${page}`,
+                token,
+            );
+            if (!Array.isArray(pageResults) || pageResults.length === 0) { break; }
+            gists.push(...pageResults);
+            if (pageResults.length < this.GISTS_PER_PAGE) { break; }
         }
 
-        await this.delay(this.getRetryDelayMs(requestError, attempt));
-      }
+        return gists;
     }
-  }
 
-  private requestOnce(
-    method: string,
-    apiPath: string,
-    token: string,
-    body?: string,
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.REQUEST_TIMEOUT_MS);
-      const options: https.RequestOptions = {
-        hostname: "api.github.com",
-        path: apiPath,
-        method,
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "Solobois-Settings-Sync",
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "Content-Type": "application/json",
-        },
-      };
+    async getGist(gistId: string, token: string): Promise<GistData> {
+        this.token = token;
+        return this.http.request('GET', `/gists/${gistId}`, token);
+    }
 
-      if (body) {
-        (options.headers as any)["Content-Length"] =
-          Buffer.byteLength(body).toString();
-      }
-
-      const req = https.request(options, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          clearTimeout(timeout);
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            if (!data) {
-              resolve(null);
-              return;
-            }
-            try {
-              resolve(JSON.parse(data));
-            } catch {
-              reject(new Error("Failed to parse GitHub API response"));
-            }
-          } else {
-            let msg = `GitHub API error ${res.statusCode}`;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.message) {
-                msg += `: ${parsed.message}`;
-              }
-            } catch {
-              /* ignore parse error */
-            }
-            const error = new Error(msg) as RequestError;
-            error.statusCode = res.statusCode;
-            const retryAfterMs = this.parseRetryAfterMs(res.headers["retry-after"]);
-            if (retryAfterMs !== undefined) {
-              error.retryAfterMs = retryAfterMs;
-            }
-            reject(error);
-          }
-        });
-      });
-
-      req.on("error", (e: NodeJS.ErrnoException) => {
-        clearTimeout(timeout);
-        if (e.name === "AbortError") {
-          const timeoutError = new Error(
-            `GitHub API request timed out after ${this.REQUEST_TIMEOUT_MS}ms`,
-          ) as RequestError;
-          timeoutError.name = "AbortError";
-          reject(timeoutError);
-          return;
+    async getGistHistory(gistId: string, token: string): Promise<any[]> {
+        this.token = token;
+        const gist = await this.http.request('GET', `/gists/${gistId}`, token);
+        if (!gist || typeof gist !== 'object' || !Array.isArray((gist as any).history)) {
+            return [];
         }
-
-        reject(e as RequestError);
-      });
-
-      if (body) {
-        req.write(body);
-      }
-      req.end();
-    });
-  }
-
-  private shouldRetry(error: RequestError, statusCode?: number): boolean {
-    if (error.name === "AbortError") {
-      return true;
+        return (gist as any).history;
     }
 
-    if (error.code && ["ECONNRESET", "ETIMEDOUT", "ENOTFOUND"].includes(error.code)) {
-      return true;
+    async getGistRevision(gistId: string, sha: string, token: string): Promise<GistData> {
+        this.token = token;
+        return this.http.request('GET', `/gists/${gistId}/${sha}`, token);
     }
 
-    if (statusCode === 429) {
-      return true;
+    async createGist(
+        description: string,
+        files: Record<string, { content: string }>,
+        token: string,
+        isPublic = false,
+    ): Promise<GistData> {
+        this.token = token;
+        return this.http.request('POST', '/gists', token, JSON.stringify({ description, public: isPublic, files }));
     }
 
-    if (statusCode === 403 && error.retryAfterMs !== undefined) {
-      return true;
+    async updateGist(
+        gistId: string,
+        files: Record<string, { content: string }>,
+        token: string,
+        description?: string,
+        filesToDelete: string[] = [],
+    ): Promise<GistData> {
+        this.token = token;
+        const requestFiles: Record<string, { content: string } | null> = { ...files };
+        for (const filename of filesToDelete) {
+            requestFiles[filename] = null;
+        }
+        const body: any = { files: requestFiles };
+        if (description) { body.description = description; }
+        return this.http.request('PATCH', `/gists/${gistId}`, token, JSON.stringify(body));
     }
 
-    return statusCode !== undefined && statusCode >= 500;
-  }
-
-  private getRetryDelayMs(error: RequestError, attempt: number): number {
-    return error.retryAfterMs ?? 1000 * Math.pow(2, attempt);
-  }
-
-  private parseRetryAfterMs(retryAfterHeader: string | string[] | undefined): number | undefined {
-    const rawValue = Array.isArray(retryAfterHeader) ? retryAfterHeader[0] : retryAfterHeader;
-    if (!rawValue) {
-      return undefined;
+    async uploadPrivateVsix(gistId: string, extId: string, vsixPath: string, token: string): Promise<string> {
+        const base64Content = fs.readFileSync(vsixPath).toString('base64');
+        const fileKey = `private-ext-${extId.replace(/\./g, '-')}.vsix.b64`;
+        await this.http.request('PATCH', `/gists/${gistId}`, token, JSON.stringify({
+            files: { [fileKey]: { content: base64Content } }
+        }));
+        return fileKey;
     }
 
-    const seconds = Number(rawValue);
-    if (Number.isFinite(seconds)) {
-      return Math.max(0, seconds * 1000);
+    async downloadPrivateVsix(gistId: string, gistFileKey: string, destPath: string): Promise<void> {
+        const token = this.requireToken();
+        const gist = await this.http.request('GET', `/gists/${gistId}`, token);
+        const fileEntry = gist?.files?.[gistFileKey];
+        if (!fileEntry) {
+            throw new Error(`Gist file not found: ${gistFileKey}`);
+        }
+        let base64Content = typeof fileEntry.content === 'string' ? fileEntry.content : '';
+        if (typeof fileEntry.raw_url === 'string' && fileEntry.raw_url.length > 0) {
+            base64Content = await this.http.requestRawText(fileEntry.raw_url, token);
+        }
+        fs.writeFileSync(destPath, Buffer.from(base64Content, 'base64'));
     }
 
-    const timestamp = Date.parse(rawValue);
-    if (Number.isNaN(timestamp)) {
-      return undefined;
+    private requireToken(): string {
+        if (!this.token) {
+            throw new Error('GitHub token is not set. Call a tokenized GistService method first.');
+        }
+        return this.token;
     }
-
-    return Math.max(0, timestamp - Date.now());
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }
-
-

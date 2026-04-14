@@ -3,11 +3,37 @@ import * as fs from 'fs';
 import * as cp from 'child_process';
 import * as path from 'path';
 import { sensitiveDataGuard } from './sensitiveDataGuard';
+import { SettingsPathResolver } from './settings/pathResolver';
+import { parseJsonc } from './utils';
 
 /**
  * Manages reading/writing local VS Code settings files, keybindings, and extensions.
  */
 export class SettingsManager {
+
+    private readonly _paths = new SettingsPathResolver();
+
+    private isPlainObject(value: unknown): value is Record<string, unknown> {
+        return !!value && typeof value === 'object' && !Array.isArray(value);
+    }
+
+    private getStringArrayConfig(config: vscode.WorkspaceConfiguration, key: string): string[] {
+        const value = config.get<unknown>(key);
+        if (!Array.isArray(value)) {
+            return [];
+        }
+
+        return value.filter((item): item is string => typeof item === 'string');
+    }
+
+    private getConfigurationValue(key: string): unknown {
+        try {
+            return vscode.workspace.getConfiguration().get(key);
+        } catch (err) {
+            console.warn(`Soloboi's Settings Sync: Failed to read configuration key "${key}"`, err);
+            return undefined;
+        }
+    }
 
     /**
      * Read extension directory names marked for uninstall in `.obsolete`.
@@ -42,7 +68,7 @@ export class SettingsManager {
      */
     private getIgnoredExtensionIds(): Set<string> {
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-        const ignored = config.get<string[]>('ignoredExtensions', []);
+        const ignored = this.getStringArrayConfig(config, 'ignoredExtensions');
         return new Set(
             ignored
                 .map(id => (id || '').trim().toLowerCase())
@@ -50,77 +76,63 @@ export class SettingsManager {
         );
     }
 
-    private installExtensionViaCLI(id: string): Promise<void> {
+    private log(msg: string): void {
+        console.log(msg);
+    }
+
+    private async installExtensionViaCLI(id: string): Promise<void> {
         const appRoot = vscode.env.appRoot;
-        let cliPath: string;
 
+        const candidates: string[] = [];
         if (process.platform === 'win32') {
-            cliPath = path.join(appRoot, '..', 'bin', 'code.cmd');
+            candidates.push(
+                path.join(appRoot, '..', 'bin', 'code-server.cmd'),
+                path.join(appRoot, '..', 'bin', 'code.cmd'),
+                'code-server',
+                'code'
+            );
         } else if (process.platform === 'darwin') {
-            cliPath = path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code');
+            const macBin = path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin');
+            candidates.push(
+                path.join(macBin, 'code-server'),
+                path.join(macBin, 'code'),
+                'code-server',
+                'code'
+            );
         } else {
-            cliPath = path.join(appRoot, '..', 'bin', 'code');
+            candidates.push(
+                path.join(appRoot, '..', 'bin', 'code-server'),
+                path.join(appRoot, '..', 'bin', 'code'),
+                'code-server',
+                'code'
+            );
         }
 
-        if (!fs.existsSync(cliPath)) {
-            cliPath = 'code';
-        }
-
-        return new Promise<void>((resolve, reject) => {
-            cp.execFile(cliPath, ['--install-extension', id], err => {
-                if (err) {
-                    reject(err);
+        let lastError: unknown;
+        for (const cliPath of candidates) {
+            if (!cliPath.includes(path.sep) || fs.existsSync(cliPath)) {
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        cp.execFile(cliPath, ['--install-extension', id], err => {
+                            if (err) { reject(err); return; }
+                            resolve();
+                        });
+                    });
+                    this.log(`[SettingsManager] Installed "${id}" via "${cliPath}"`);
                     return;
+                } catch (err) {
+                    lastError = err;
+                    this.log(`[SettingsManager] CLI failed: "${cliPath}" — ${String(err)}`);
                 }
-                resolve();
-            });
-        });
-    }
-
-    /**
-     * Get the VS Code User settings directory based on the current OS.
-     */
-    getUserSettingsDir(): string | null {
-        const isWindows = process.platform === 'win32';
-        const isMac = process.platform === 'darwin';
-
-        // Detect app folder name (default to Antigravity, fallback to Code/VSCodium if not found)
-        const appName = vscode.env.appName || "";
-        let folderName = 'Antigravity';
-        
-        if (appName.includes('VSCodium')) {
-            folderName = 'VSCodium';
-        } else if (appName.includes('Code')) {
-            folderName = 'Code';
+            }
         }
-
-        if (isWindows && process.env.APPDATA) {
-            return path.join(process.env.APPDATA, folderName, 'User');
-        } else if (isMac && process.env.HOME) {
-            return path.join(process.env.HOME, 'Library', 'Application Support', folderName, 'User');
-        } else if (process.env.HOME) {
-            return path.join(process.env.HOME, '.config', folderName.toLowerCase(), 'User');
-        }
-        return null;
+        throw new Error(`Failed to install extension "${id}" via CLI. Last error: ${String(lastError)}`);
     }
 
-    /**
-     * Get the path to settings.json
-     */
-    getSettingsPath(): string | null {
-        const dir = this.getUserSettingsDir();
-        return dir ? path.join(dir, 'settings.json') : null;
-    }
+    getUserSettingsDir(): string | null { return this._paths.getUserSettingsDir(); }
+    getSettingsPath(): string | null { return this._paths.getSettingsPath(); }
+    getKeybindingsPath(): string | null { return this._paths.getKeybindingsPath(); }
 
-    /**
-     * Get the path to keybindings.json
-     */
-    getKeybindingsPath(): string | null {
-        const dir = this.getUserSettingsDir();
-        return dir ? path.join(dir, 'keybindings.json') : null;
-    }
-
-    // ?? Read Operations ??????????????????????????????????????????????
 
     /**
      * Read local settings.json content as a string.
@@ -133,9 +145,9 @@ export class SettingsManager {
             return null;
         }
         const content = fs.readFileSync(filePath, 'utf8');
-        const fileObj = this.parseJsonc(content);
+        const fileObj = parseJsonc(content);
         if (!fileObj) {
-            // JSONC parse failed — apply value-based redaction on raw content as fallback
+            // JSONC parse failed ??apply value-based redaction on raw content as fallback
             return sensitiveDataGuard.redactJsonString(content, 'private').result;
         }
 
@@ -190,29 +202,52 @@ export class SettingsManager {
     getLocalSettingsObject(): any {
         const content = this.readLocalSettingsRaw();
         if (!content) return {};
-        return this.parseJsonc(content) || {};
+        return parseJsonc(content) || {};
+    }
+
+    getExtensionsDir(): string | null { return this._paths.getExtensionsDir(); }
+
+    getAdditionalFilePaths(): string[] { return this._paths.getAdditionalFilePaths(); }
+
+    /**
+     * Read all additional files configured by the user.
+     * Returns a map of Gist file keys to file contents.
+     * Key format: "additional__<basename>" to avoid conflicts with standard Gist files.
+     */
+    readAdditionalFiles(): Record<string, string> {
+        const result: Record<string, string> = {};
+        for (const filePath of this.getAdditionalFilePaths()) {
+            const key = 'additional__' + path.basename(filePath);
+            try {
+                result[key] = fs.readFileSync(filePath, 'utf8');
+            } catch (err) {
+                console.warn(`[SettingsSync] Failed to read additional file ${filePath}:`, err);
+            }
+        }
+        return result;
     }
 
     /**
-     * Get the extensions directory for the current editor.
-     * Checks ~/.antigravity/extensions/ first, then falls back to ~/.vscode/extensions/
+     * Write an additional file back to disk during download.
+     * Matches the Gist key (e.g. "additional__eclipse-formatter.xml") against
+     * the configured additionalFiles paths by basename. Silently skips if no match.
      */
-    getExtensionsDir(): string | null {
-        const homeDir = process.env.HOME || process.env.USERPROFILE;
-        if (!homeDir) return null;
-
-        // Try Antigravity first, then VS Code
-        const candidates = [
-            path.join(homeDir, '.antigravity', 'extensions'),
-            path.join(homeDir, '.vscode', 'extensions'),
-        ];
-
-        for (const dir of candidates) {
-            if (fs.existsSync(dir)) {
-                return dir;
+    writeAdditionalFile(filename: string, content: string): boolean {
+        const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const entries = config.get<string[]>('additionalFiles') || [];
+        const basename = filename.replace(/^additional__/, '');
+        const match = entries.find(p => path.basename(p) === basename);
+        if (!match) return false;
+        const resolved = (match.startsWith('~/') && homeDir) ? path.join(homeDir, match.slice(2)) : match;
+        if (fs.existsSync(resolved)) {
+            const current = fs.readFileSync(resolved, 'utf8');
+            if (current === content) {
+                return false;
             }
         }
-        return null;
+        fs.writeFileSync(resolved, content, 'utf8');
+        return true;
     }
 
     /**
@@ -226,7 +261,6 @@ export class SettingsManager {
         const allSettings: Record<string, any> = {};
         const processedKeys = new Set<string>();
 
-        // ?? Approach 1: VS Code API ?????????????????????????????????
         let apiExtCount = 0;
         for (const ext of vscode.extensions.all) {
             const publisher = (ext.packageJSON?.publisher || '').toLowerCase();
@@ -239,13 +273,15 @@ export class SettingsManager {
             const configs = Array.isArray(config) ? config : [config];
 
             for (const cfg of configs) {
-                const properties = cfg.properties;
-                if (!properties) continue;
+                const properties = this.isPlainObject(cfg)
+                    ? (cfg.properties as Record<string, unknown> | undefined)
+                    : undefined;
+                if (!this.isPlainObject(properties)) continue;
 
                 for (const key of Object.keys(properties)) {
                     if (processedKeys.has(key)) continue;
                     processedKeys.add(key);
-                    const value = vscode.workspace.getConfiguration().get(key);
+                    const value = this.getConfigurationValue(key);
                     if (value !== undefined) {
                         allSettings[key] = value;
                     }
@@ -253,7 +289,6 @@ export class SettingsManager {
             }
         }
 
-        // ?? Approach 2: Disk scan (fallback) ????????????????????????
         let diskExtCount = 0;
         const extensionsDir = this.getExtensionsDir();
         if (extensionsDir) {
@@ -279,19 +314,21 @@ export class SettingsManager {
                         const configs = Array.isArray(config) ? config : [config];
 
                         for (const cfg of configs) {
-                            const properties = cfg.properties;
-                            if (!properties) continue;
+                            const properties = this.isPlainObject(cfg)
+                                ? (cfg.properties as Record<string, unknown> | undefined)
+                                : undefined;
+                            if (!this.isPlainObject(properties)) continue;
 
-                            for (const key of Object.keys(properties)) {
+                            for (const [key, propertySchema] of Object.entries(properties)) {
                                 if (processedKeys.has(key)) continue;
                                 processedKeys.add(key);
 
                                 // Try VS Code API first, fall back to default from package.json
-                                const apiValue = vscode.workspace.getConfiguration().get(key);
+                                const apiValue = this.getConfigurationValue(key);
                                 if (apiValue !== undefined) {
                                     allSettings[key] = apiValue;
-                                } else if (properties[key].default !== undefined) {
-                                    allSettings[key] = properties[key].default;
+                                } else if (this.isPlainObject(propertySchema) && 'default' in propertySchema) {
+                                    allSettings[key] = (propertySchema as { default?: unknown }).default;
                                 }
                             }
                         }
@@ -333,47 +370,11 @@ export class SettingsManager {
         return JSON.stringify(extensions, null, 2);
     }
 
-    /**
-     * Get the Antigravity data directory (~/.gemini/antigravity/)
-     */
-    getAntigravityDataDir(): string | null {
-        const homeDir = process.env.HOME || process.env.USERPROFILE;
-        if (!homeDir) return null;
-        return path.join(homeDir, '.gemini', 'antigravity');
-    }
-
-    /**
-     * Get the path to Antigravity internal settings (mcp_config.json)
-     */
-    getAntigravityConfigPath(): string | null {
-        const dir = this.getAntigravityDataDir();
-        return dir ? path.join(dir, 'mcp_config.json') : null;
-    }
-
-    /**
-     * Get the path to browserAllowlist.txt
-     */
-    getBrowserAllowlistPath(): string | null {
-        const dir = this.getAntigravityDataDir();
-        return dir ? path.join(dir, 'browserAllowlist.txt') : null;
-    }
-
-    /**
-     * Get the snippets directory path
-     */
-    getSnippetsDir(): string | null {
-        const dir = this.getUserSettingsDir();
-        return dir ? path.join(dir, 'snippets') : null;
-    }
-
-    /**
-     * Get the backup directory
-     */
-    getBackupDir(): string | null {
-        const homeDir = process.env.HOME || process.env.USERPROFILE;
-        if (!homeDir) return null;
-        return path.join(homeDir, '.antigravity-sync-backup');
-    }
+    getAntigravityDataDir(): string | null { return this._paths.getAntigravityDataDir(); }
+    getAntigravityConfigPath(): string | null { return this._paths.getAntigravityConfigPath(); }
+    getBrowserAllowlistPath(): string | null { return this._paths.getBrowserAllowlistPath(); }
+    getSnippetsDir(): string | null { return this._paths.getSnippetsDir(); }
+    getBackupDir(): string | null { return this._paths.getBackupDir(); }
 
     /**
      * Read local Antigravity config (mcp_config.json).
@@ -411,8 +412,12 @@ export class SettingsManager {
             const ext = path.extname(entry).toLowerCase();
             if (ext === '.json' || ext === '.code-snippets') {
                 const filePath = path.join(snippetsDir, entry);
-                if (fs.statSync(filePath).isFile()) {
-                    snippetFiles[entry] = fs.readFileSync(filePath, 'utf8');
+                try {
+                    if (fs.statSync(filePath).isFile()) {
+                        snippetFiles[entry] = fs.readFileSync(filePath, 'utf8');
+                    }
+                } catch (err) {
+                    console.warn(`Soloboi's Settings Sync: Failed to read snippet file ${entry}`, err);
                 }
             }
         }
@@ -423,7 +428,6 @@ export class SettingsManager {
         return JSON.stringify(snippetFiles, null, 2);
     }
 
-    // ?? Write Operations ?????????????????????????????????????????????
 
     /**
      * Backup current settings before download.
@@ -471,7 +475,14 @@ export class SettingsManager {
             for (const entry of entries) {
                 const ext = path.extname(entry).toLowerCase();
                 if (ext === '.json' || ext === '.code-snippets') {
-                    fs.copyFileSync(path.join(snippetsDir, entry), path.join(backupSnippetsDir, entry));
+                    const sourcePath = path.join(snippetsDir, entry);
+                    try {
+                        if (fs.statSync(sourcePath).isFile()) {
+                            fs.copyFileSync(sourcePath, path.join(backupSnippetsDir, entry));
+                        }
+                    } catch (err) {
+                        console.warn(`Soloboi's Settings Sync: Failed to backup snippet file ${entry}`, err);
+                    }
                 }
             }
         }
@@ -510,9 +521,12 @@ export class SettingsManager {
         // Resolve portable path variables to local machine paths
         const resolvedContent = this.resolvePortablePaths(remoteContent);
 
-        const remoteObj = this.parseJsonc(resolvedContent);
+        const remoteObj = parseJsonc(resolvedContent);
         if (!remoteObj) {
             throw new Error('Cannot parse remote settings.json');
+        }
+        if (Array.isArray(remoteObj) || typeof remoteObj !== 'object') {
+            throw new Error('Remote settings.json is not a JSON object');
         }
 
         const ignored = this.getIgnoredPatterns();
@@ -527,7 +541,7 @@ export class SettingsManager {
         let localObj: any = {};
         if (fs.existsSync(filePath)) {
             const localContent = fs.readFileSync(filePath, 'utf8');
-            localObj = this.parseJsonc(localContent) ?? {};
+            localObj = parseJsonc(localContent) ?? {};
         }
 
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -588,7 +602,18 @@ export class SettingsManager {
 
         let snippetFiles: Record<string, string>;
         try {
-            snippetFiles = JSON.parse(remoteSnippetsJson);
+            const parsed = JSON.parse(remoteSnippetsJson);
+            if (!this.isPlainObject(parsed)) {
+                console.warn('Soloboi\'s Settings Sync: remote snippets.json is not an object');
+                return;
+            }
+
+            snippetFiles = {};
+            for (const [name, value] of Object.entries(parsed)) {
+                if (typeof value === 'string') {
+                    snippetFiles[name] = value;
+                }
+            }
         } catch {
             console.warn('Soloboi\'s Settings Sync: Cannot parse remote snippets.json');
             return;
@@ -638,7 +663,15 @@ export class SettingsManager {
     async installMissingExtensions(remoteExtensionsJson: string): Promise<number> {
         let remoteList: { id: string }[];
         try {
-            remoteList = JSON.parse(remoteExtensionsJson);
+            const parsed = JSON.parse(remoteExtensionsJson);
+            if (!Array.isArray(parsed)) {
+                console.warn('Soloboi\'s Settings Sync: remote extensions.json is not an array');
+                return 0;
+            }
+
+            remoteList = parsed
+                .filter(item => this.isPlainObject(item) && typeof item.id === 'string')
+                .map(item => ({ id: String(item.id) }));
         } catch {
             console.warn('Soloboi\'s Settings Sync: Cannot parse remote extensions.json');
             return 0;
@@ -677,7 +710,15 @@ export class SettingsManager {
 
         let remoteList: { id: string }[];
         try {
-            remoteList = JSON.parse(remoteExtensionsJson);
+            const parsed = JSON.parse(remoteExtensionsJson);
+            if (!Array.isArray(parsed)) {
+                console.warn('Soloboi\'s Settings Sync: remote extensions.json is not an array');
+                return 0;
+            }
+
+            remoteList = parsed
+                .filter(item => this.isPlainObject(item) && typeof item.id === 'string')
+                .map(item => ({ id: String(item.id) }));
         } catch {
             return 0;
         }
@@ -711,113 +752,17 @@ export class SettingsManager {
         return count;
     }
 
-    // ?? Portable Path System ?????????????????????????????????????????
 
-    /**
-     * Build a list of path variable mappings for the current machine.
-     * Ordered from MOST SPECIFIC to LEAST SPECIFIC to prevent partial matches.
-     */
-    private getPathVariables(): Array<{ variable: string; value: string }> {
-        const vars: Array<{ variable: string; value: string }> = [];
-        const userSettingsDir = this.getUserSettingsDir();
-        const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+    portablizePaths(settingsStr: string): string { return this._paths.portablizePaths(settingsStr); }
+    resolvePortablePaths(settingsStr: string): string { return this._paths.resolvePortablePaths(settingsStr); }
 
-        // 1. globalStorage (most specific)
-        if (userSettingsDir) {
-            const globalStorageDir = path.join(userSettingsDir, 'globalStorage');
-            vars.push({ variable: '${globalStorage}', value: globalStorageDir });
-        }
-
-        // 2. User settings dir (e.g., %APPDATA%/Antigravity/User)
-        if (userSettingsDir) {
-            vars.push({ variable: '${userSettingsDir}', value: userSettingsDir });
-        }
-
-        // 3. AppData / Application Support
-        if (process.platform === 'win32' && process.env.APPDATA) {
-            vars.push({ variable: '${appData}', value: process.env.APPDATA });
-        } else if (process.platform === 'darwin' && process.env.HOME) {
-            vars.push({ variable: '${appData}', value: path.join(process.env.HOME, 'Library', 'Application Support') });
-        } else if (process.env.HOME) {
-            vars.push({ variable: '${appData}', value: path.join(process.env.HOME, '.config') });
-        }
-
-        // 4. User home (least specific)
-        if (homeDir) {
-            vars.push({ variable: '${userHome}', value: homeDir });
-        }
-
-        return vars;
-    }
-
-    /**
-     * Replace machine-specific absolute paths with portable ${variables}.
-     * Used during UPLOAD to make settings.json cross-machine compatible.
-     *
-     * JSON.stringify produces different escape levels:
-     *   - Raw path value "C:\Users" in an object becomes "C:\\Users" in JSON output
-     *   - Settings values that already contain "C:\\Users" become "C:\\\\Users" in JSON output
-     * We must handle all these variants, replacing the longest (most-escaped) first.
-     */
-    portablizePaths(settingsStr: string): string {
-        const vars = this.getPathVariables();
-        let result = settingsStr;
-
-        for (const { variable, value } of vars) {
-            if (!value) continue;
-
-            // Quad-escaped: settings.json stores "C:\\Users", JSON.stringify makes "C:\\\\Users"
-            const quadEscaped = value.replace(/\\/g, '\\\\\\\\');
-            // Double-escaped: raw path "C:\Users" ??JSON.stringify ??"C:\\Users"
-            const doubleEscaped = value.replace(/\\/g, '\\\\');
-            // Forward-slash variant
-            const forwardSlash = value.replace(/\\/g, '/');
-
-            // Replace from most-escaped to least-escaped (order matters!)
-            result = result.split(quadEscaped).join(variable);
-            result = result.split(doubleEscaped).join(variable);
-            if (forwardSlash !== value) {
-                result = result.split(forwardSlash).join(variable);
-            }
-            result = result.split(value).join(variable);
-        }
-
-        return result;
-    }
-
-    /**
-     * Resolve portable ${variables} back to local machine paths.
-     * Used during DOWNLOAD to restore machine-specific paths.
-     *
-     * Since portablizePaths replaces quad-escaped paths with ${variable},
-     * we must restore ${variable} back to quad-escaped paths to maintain
-     * valid JSON with correctly escaped backslash strings.
-     */
-    resolvePortablePaths(settingsStr: string): string {
-        const vars = this.getPathVariables();
-        let result = settingsStr;
-
-        // Resolve in REVERSE order (least specific first) to avoid
-        // replacing ${userHome} inside ${globalStorage}'s expanded path
-        for (const { variable, value } of [...vars].reverse()) {
-            if (!value) continue;
-
-            // Restore to double-escaped form (standard JSON for paths like "C:\\Users")
-            const doubleEscaped = value.replace(/\\/g, '\\\\');
-            result = result.split(variable).join(doubleEscaped);
-        }
-
-        return result;
-    }
-
-    // ?? Utilities ????????????????????????????????????????????????????
 
     /**
      * Get ignored patterns from configuration.
      */
     private getIgnoredPatterns(): string[] {
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-        return config.get<string[]>('ignoredSettings', []);
+        return this.getStringArrayConfig(config, 'ignoredSettings');
     }
 
     private readRedactedJsonFile(filePath: string | null): string | null {
@@ -826,7 +771,7 @@ export class SettingsManager {
         }
 
         const content = fs.readFileSync(filePath, 'utf8');
-        const parsed = this.parseJsonc(content);
+        const parsed = parseJsonc(content);
         if (parsed === null) {
             return content;
         }
@@ -869,77 +814,6 @@ export class SettingsManager {
             return new RegExp(regexStr).test(text);
         };
         return ignoredPatterns.some(pattern => matchGlob(pattern, key));
-    }
-
-    /**
-     * Parse JSONC (JSON with comments and trailing commas) by stripping them first.
-     */
-    private parseJsonc(content: string): any | null {
-        try {
-            // A more robust but simple comment remover that respects strings (to avoid breaking URLs)
-            let isInsideString = false;
-            let isInsideSingleLineComment = false;
-            let isInsideMultiLineComment = false;
-            let cleaned = '';
-
-            for (let i = 0; i < content.length; i++) {
-                const char = content[i];
-                const nextChar = content[i + 1];
-
-                if (isInsideSingleLineComment) {
-                    if (char === '\n') {
-                        isInsideSingleLineComment = false;
-                        cleaned += char;
-                    }
-                    continue;
-                }
-
-                if (isInsideMultiLineComment) {
-                    if (char === '*' && nextChar === '/') {
-                        isInsideMultiLineComment = false;
-                        i++; // skip /
-                    }
-                    continue;
-                }
-
-                if (isInsideString) {
-                    cleaned += char;
-                    if (char === '"' && content[i - 1] !== '\\') {
-                        isInsideString = false;
-                    }
-                    continue;
-                }
-
-                if (char === '"') {
-                    isInsideString = true;
-                    cleaned += char;
-                    continue;
-                }
-
-                if (char === '/' && nextChar === '/') {
-                    isInsideSingleLineComment = true;
-                    i++;
-                    continue;
-                }
-
-                if (char === '/' && nextChar === '*') {
-                    isInsideMultiLineComment = true;
-                    i++;
-                    continue;
-                }
-
-                cleaned += char;
-            }
-
-            // Strip trailing commas before } or ]
-            cleaned = cleaned.replace(/,\s*([\]}])/g, '$1');
-            const trimmed = cleaned.trim();
-            if (!trimmed) { return {}; }
-            return JSON.parse(trimmed);
-        } catch (err: any) {
-            console.error('Antigravity Sync: JSONC Parse Error', err);
-            return null;
-        }
     }
 
     /**

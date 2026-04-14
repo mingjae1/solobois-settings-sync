@@ -39,13 +39,13 @@ export class SensitiveDataGuard {
     ];
 
     private static readonly VALUE_PATTERNS: ValuePattern[] = [
-        { pattern: /ghp_[a-zA-Z0-9]{36}/, name: 'GitHub PAT' },
-        { pattern: /github_pat_[a-zA-Z0-9_]{40,}/, name: 'GitHub fine-grained PAT' },
-        { pattern: /AKIA[0-9A-Z]{16}/, name: 'AWS Access Key' },
-        { pattern: /sk-[a-zA-Z0-9]{48}/, name: 'OpenAI API Key' },
-        { pattern: /xoxb-[0-9]+-[a-zA-Z0-9-]+/, name: 'Slack Bot Token' },
-        { pattern: /postgres:\/\/[^:]+:[^@]+@/, name: 'DB connection string' },
-        { pattern: /mysql:\/\/[^:]+:[^@]+@/, name: 'MySQL connection string' },
+        { pattern: /\bghp_[a-zA-Z0-9]{36}\b/, name: 'GitHub PAT' },
+        { pattern: /\bgithub_pat_[a-zA-Z0-9_]{40,}\b/, name: 'GitHub fine-grained PAT' },
+        { pattern: /\bAKIA[0-9A-Z]{16}\b/, name: 'AWS Access Key' },
+        { pattern: /\bsk-[a-zA-Z0-9_-]{20,}\b/, name: 'OpenAI API Key' },
+        { pattern: /\bxoxb-[0-9]+-[a-zA-Z0-9-]+\b/, name: 'Slack Bot Token' },
+        { pattern: /\bpostgres(?:ql)?:\/\/[^:\s]+:[^@\s]+@/i, name: 'DB connection string' },
+        { pattern: /\bmysql:\/\/[^:\s]+:[^@\s]+@/i, name: 'MySQL connection string' },
     ];
 
     public redactObject<T extends object>(obj: T, level: RedactionLevel): { result: T; report: RedactionReport } {
@@ -129,7 +129,7 @@ export class SensitiveDataGuard {
             }
 
             output = output.replace(regex, '[REDACTED]');
-            report.redactedValues.push(`${valuePattern.name} at key '${location}'`);
+            report.redactedValues.push(...matches.map(() => `${valuePattern.name} at key '${location}'`));
         }
 
         return output;

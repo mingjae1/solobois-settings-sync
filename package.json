@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -74,94 +74,94 @@
         "title": "Soloboi's Settings Sync: Manage Ignored Settings"
       },
       {
+        "command": "soloboisSettingsSync.pickUserDataDir",
+        "title": "Soloboi's Settings Sync: Select User Data Directory",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.pickExtensionsDir",
+        "title": "Soloboi's Settings Sync: Select Extensions Directory",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.pickAdditionalFiles",
+        "title": "Soloboi's Settings Sync: Select Additional Sync Files",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
         "command": "soloboisSettingsSync.checkExtensionHealth",
-        "title": "익스텐션 마켓플레이스 헬스체크",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Check Marketplace Health",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.runSettingsE2ETest",
-        "title": "설정 E2E 테스트 실행",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.setCustomMarketplaceUrl",
-        "title": "Custom Marketplace URL 설정",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Run Settings E2E Test",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.togglePublicGist",
-        "title": "Public Gist 토글 (공개/비공개)",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Toggle Public Gist",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.showLocalVsRemoteDiff",
-        "title": "로컬 vs 원격 설정 Diff 보기",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.addMarketplace",
-        "title": "마켓플레이스 추가",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.removeMarketplace",
-        "title": "마켓플레이스 제거",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.reorderMarketplace",
-        "title": "마켓플레이스 스캔 순서 변경",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.toggleCustomMarketplaceAutoUpdate",
-        "title": "커스텀 마켓 자동 업데이트 토글",
-        "category": "Soloboi Sync"
-      },
-      {
-        "command": "soloboisSettingsSync.checkCustomMarketplaceUpdates",
-        "title": "커스텀 마켓 업데이트 확인",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: View Local vs Remote Diff",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.registerPrivateExtension",
-        "title": "사설 익스텐션 등록",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Register Private Extension",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.removePrivateExtension",
-        "title": "사설 익스텐션 제거",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Remove Private Extension",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.uploadPrivateVsixToGist",
+        "title": "Soloboi's Settings Sync: Upload VSIX to Gist",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.shareSettings",
-        "title": "설정 공유 (Share Your Settings)",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Share Settings",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.openSettings",
-        "title": "설정 열기",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Open Settings",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.openRepository",
-        "title": "GitHub 저장소 열기",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Open Repository",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.reportIssue",
-        "title": "이슈/버그 신고",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Report Issue",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.showLog",
-        "title": "로그 보기",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: View Log",
+        "category": "Soloboi's Settings Sync"
       },
       {
         "command": "soloboisSettingsSync.getStarted",
-        "title": "Getting Started",
-        "category": "Soloboi Sync"
+        "title": "Soloboi's Settings Sync: Getting Started",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.autoDetectPrivateExtensions",
+        "title": "Soloboi's Settings Sync: Auto-detect Private Extensions",
+        "category": "Soloboi's Settings Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.showDockerPathInfo",
+        "title": "Soloboi's Settings Sync: Show Docker Environment Info",
+        "category": "Soloboi's Settings Sync"
       }
     ],
     "keybindings": [
@@ -281,7 +281,7 @@
         "soloboisSettingsSync.authoritativeDownload": {
           "type": "boolean",
           "default": false,
-          "description": "원격 settings.json을 authoritative하게 적용할지 여부입니다. false면 기존 deep merge를 유지하고, true면 동기화 대상 키는 원격값으로 그대로 덮어써서 원격에서 삭제된 키도 로컬에서 제거합니다."
+          "description": "When enabled, remote settings.json is applied as authoritative. Local keys not present in remote are removed."
         },
         "soloboisSettingsSync.syncExtensions": {
           "type": "boolean",
@@ -321,45 +321,10 @@
           "default": "Default",
           "description": "The name of the currently active sync profile."
         },
-        "soloboisSettingsSync.customMarketplaceUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Custom marketplace base URL (OpenVSX-compatible REST API). Used as fallback when extension status is unknown in the primary marketplace. Example: https://my-marketplace.example.com"
-        },
-        "soloboisSettingsSync.marketplaceRegistry": {
-          "type": "object",
-          "default": {},
-          "description": "Custom marketplace registry. Maps domain key (e.g. 'open-vsx.org') to base URL. Example: { \"my-market.example.com\": \"https://my-market.example.com\" }",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "soloboisSettingsSync.marketplaceScanOrder": {
-          "type": "array",
-          "default": [],
-          "description": "Domain keys defining the scan order for marketplace fallback. Earlier entries are checked first.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "soloboisSettingsSync.customMarketplaceAutoUpdate": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically install updates found in custom marketplaces without prompting."
-        },
-        "soloboisSettingsSync.customMarketplaceUpdateCheck": {
-          "type": "string",
-          "enum": [
-            "startup",
-            "disabled"
-          ],
-          "default": "disabled",
-          "description": "When to check for updates from custom marketplaces. 'startup' checks on activation, 'disabled' disables automatic checks."
-        },
         "soloboisSettingsSync.privateExtensions": {
           "type": "array",
           "default": [],
-          "description": "List of private/unlisted extensions for sync guidance. Each entry has id, version, optional vsixUrl, localPath, and note.",
+          "description": "List of private/unlisted extensions. Each entry has id, version, optional vsixUrl, syncGistKey, and note.",
           "items": {
             "type": "object",
             "required": [
@@ -379,16 +344,69 @@
                 "type": "string",
                 "description": "Direct VSIX download URL for automatic install"
               },
-              "localPath": {
-                "type": "string",
-                "description": "Local .vsix file path for manual guidance"
-              },
               "note": {
                 "type": "string",
                 "description": "Optional note for this extension"
+              },
+              "syncGistKey": {
+                "type": "string",
+                "description": "Gist file key for Tier 1 private VSIX sync payload"
               }
             }
           }
+        },
+        "soloboisSettingsSync.privateExtensionsAutoDetectRequireConfirm": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation picker before applying auto-detected private extension changes."
+        },
+        "soloboisSettingsSync.privateExtensionsAutoDetectVersionPolicy": {
+          "type": "string",
+          "enum": [
+            "preserve",
+            "replace-if-unknown",
+            "always-replace"
+          ],
+          "default": "replace-if-unknown",
+          "description": "How auto-detect updates privateExtensions[].version when an entry already exists."
+        },
+        "soloboisSettingsSync.privateExtensionsAutoDetectNoteTemplate": {
+          "type": "string",
+          "default": "Auto-detected as private (not found in public marketplaces). Add VSIX URL or upload to Gist for auto-install.",
+          "description": "Note text appended/used when private extensions are auto-detected."
+        },
+        "soloboisSettingsSync.userDataDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override the user data directory path (where settings.json and keybindings.json live). Supports ~/. Leave empty for auto-detection. Example: ~/data/User for LinuxServer.io code-server Docker."
+        },
+        "soloboisSettingsSync.extensionsDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override the extensions directory path. Supports ~/. Leave empty for auto-detection. Example: ~/extensions for LinuxServer.io code-server Docker."
+        },
+        "soloboisSettingsSync.additionalFiles": {
+          "type": "array",
+          "default": [],
+          "description": "Additional files to include in the Gist sync (e.g. formatter configs, dotfiles). Supports ~/. Each file is stored in the Gist as 'additional__<basename>'. Example: [\"~/data/eclipse-formatter.xml\"]",
+          "items": {
+            "type": "string"
+          }
+        },
+        "soloboisSettingsSync.pathStrategy": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "docker",
+            "standard"
+          ],
+          "enumDescriptions": [
+            "Auto-detect: uses Docker paths if container signals are found, otherwise uses standard OS paths.",
+            "Always use LinuxServer.io code-server Docker paths (~/data/User, ~/extensions). Use this if auto-detection fails inside a container.",
+            "Always use standard OS paths. Skips Docker path detection entirely."
+          ],
+          "default": "auto",
+          "description": "Controls how settings and extensions directory paths are resolved. Set to 'docker' if running inside a LinuxServer.io code-server container and sync is not working."
         }
       }
     }
@@ -402,7 +420,7 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./scripts/smoke-tests.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.6",

@@ -4,17 +4,17 @@ import * as os from "os";
 import * as path from "path";
 
 /**
- * [프로토타입] 격리된 임시 VS Code 인스턴스를 실행해 설정 적용 시 오류가 발생하는지 자동으로 탐지한다.
+ * [프로토타입] 격리된 임시 VS Code 인스턴스를 실행해 설정 적용 시 오류가 발생하는지 자동으로 테스트한다.
  *
  * 사용법:
  *   1. 테스트할 settings.json 내용을 Record<string, unknown> 형태로 준비한다.
  *   2. runSettingsE2ETest({
  *        vscodeExecutablePath: 'C:/path/to/Code.exe',  // VS Code 실행 파일 경로
  *        settings: { 'editor.fontSize': 9999 },        // 테스트할 설정값
- *        launchTimeoutMs: 8000                          // 8초 후 VS Code 자동 종료
+ *        launchTimeoutMs: 8000                         // 8초 후 VS Code 자동 종료
  *      }) 호출.
  *   3. 반환된 errorLogMatches 배열에 'error', 'exception' 키워드가 포함된 로그 라인이 담긴다.
- *   4. 비어있으면 해당 설정은 오류 없이 정상 적용된 것.
+ *   4. 비어있으면 해당 설정이 오류 없이 정상 적용된 것.
  *
  * @prototype
  * @status:experimental
@@ -53,8 +53,10 @@ export async function runSettingsE2ETest(
   ]);
   await fs.writeFile(settingsPath, `${JSON.stringify(options.settings, null, 2)}\n`, "utf8");
 
+  const folderUri = `file:///${workspaceDir.replace(/\\/g, "/")}`;
   const args = [
-    workspaceDir,
+    "--folder-uri",
+    folderUri,
     "--user-data-dir",
     userDataDir,
     "--extensions-dir",
