@@ -1,102 +1,22 @@
 # Soloboi's Settings Sync
 
-Sync VS Code or Antigravity settings across machines using GitHub Gist.
+Sync once, work everywhere.
 
-## Features
+[![VS Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/soloboi.solobois-settings-sync?style=for-the-badge&label=VS%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
+[![VS Marketplace Installs](https://img.shields.io/visual-studio-marketplace/i/soloboi.solobois-settings-sync?style=for-the-badge&label=Installs)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync)
+[![VS Marketplace Rating](https://img.shields.io/visual-studio-marketplace/r/soloboi.solobois-settings-sync?style=for-the-badge&label=Rating)](https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync&ssr=false#review-details)
+[![Open VSX Downloads](https://img.shields.io/open-vsx/dt/soloboi/solobois-settings-sync?style=for-the-badge&label=Open%20VSX%20Downloads)](https://open-vsx.org/extension/soloboi/solobois-settings-sync)
+[![Open VSX Version](https://img.shields.io/open-vsx/v/soloboi/solobois-settings-sync?style=for-the-badge&label=Open%20VSX)](https://open-vsx.org/extension/soloboi/solobois-settings-sync)
+[![GitHub Stars](https://img.shields.io/github/stars/mingjae1/solobois-settings-sync?style=for-the-badge&label=GitHub%20Stars)](https://github.com/mingjae1/solobois-settings-sync/stargazers)
+[![GitHub License](https://img.shields.io/github/license/mingjae1/solobois-settings-sync?style=for-the-badge)](https://github.com/mingjae1/solobois-settings-sync/blob/main/LICENSE.md)
+[![GitHub Release](https://img.shields.io/github/v/release/mingjae1/solobois-settings-sync?style=for-the-badge&label=GitHub%20Release)](https://github.com/mingjae1/solobois-settings-sync/releases)
+[![GitHub Issues](https://img.shields.io/github/issues/mingjae1/solobois-settings-sync?style=for-the-badge&label=Issues)](https://github.com/mingjae1/solobois-settings-sync/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/mingjae1/solobois-settings-sync?style=for-the-badge&label=Last%20Commit)](https://github.com/mingjae1/solobois-settings-sync/commits/main)
 
-- Sync `settings.json`, `keybindings.json`, snippets, and extension list
-- Profile-based sync (different gist/ignore rules per profile)
-- Local vs Remote diff before apply
-- Gist history and rollback
-- Private extension support (register / auto-detect / gist-embedded VSIX)
-- File-manager based path and file selection
+## Language
+- [한국어 문서 (readmekr.md)](./readmekr.md)
+- [English Docs (readmeen.md)](./readmeen.md)
 
-## Installation
-
-Install from VS Code Extensions and search for:
-
-- `Soloboi's Settings Sync`
-
-Or via Quick Open (`Ctrl+P`):
-
-```text
-ext install soloboi.solobois-settings-sync
-```
-
-## Quick Start
-
-1. Run `Soloboi's Settings Sync: Login to GitHub`
-2. Run `Soloboi's Settings Sync: Upload Settings to Gist`
-3. On another machine, run `Soloboi's Settings Sync: Set Gist ID`
-4. Run `Soloboi's Settings Sync: Download Settings from Gist`
-
-## Core Commands
-
-- `soloboisSettingsSync.syncNow` - safe sync (download first, then upload)
-- `soloboisSettingsSync.uploadNow` - upload local state to gist
-- `soloboisSettingsSync.downloadNow` - apply gist state locally
-- `soloboisSettingsSync.showLocalVsRemoteDiff` - open diff view
-- `soloboisSettingsSync.showHistory` - browse/restore gist revisions
-- `soloboisSettingsSync.shareSettings` - create shareable public snapshot
-
-## Private Extensions
-
-- `soloboisSettingsSync.registerPrivateExtension`
-- `soloboisSettingsSync.removePrivateExtension`
-- `soloboisSettingsSync.autoDetectPrivateExtensions`
-- `soloboisSettingsSync.uploadPrivateVsixToGist`
-
-## Path & File Selection (File Manager)
-
-You can choose paths/files without typing full paths:
-
-- `soloboisSettingsSync.pickUserDataDir`
-- `soloboisSettingsSync.pickExtensionsDir`
-- `soloboisSettingsSync.pickAdditionalFiles`
-
-These are also available in the sidebar `Help` section.
-
-## Recommended Settings
-
-```json
-{
-  "soloboisSettingsSync.autoSync": true,
-  "soloboisSettingsSync.autoSyncOnStartup": true,
-  "soloboisSettingsSync.autoUploadOnChange": true,
-  "soloboisSettingsSync.pathStrategy": "auto"
-}
-```
-
-For Docker-first behavior:
-
-```json
-{
-  "soloboisSettingsSync.pathStrategy": "docker"
-}
-```
-
-## Docker/code-server Notes
-
-- Auto strategy checks container signals and uses Docker/code-server paths when detected.
-- Extensions path fallback includes:
-  - `~/extensions`
-  - `~/.local/share/code-server/extensions`
-- If auto detection is not what you want, use the picker commands above to set exact directories.
-
-## Security
-
-- Sync targets your own GitHub Gist.
-- Sensitive-value filtering is applied in sync/share flows.
-- Public share flow is separate from private sync flow.
-
-## Troubleshooting
-
-- If download/apply does not match expectation, run `showLocalVsRemoteDiff` first.
-- If paths are wrong in container environments:
-  1. Set `pathStrategy` to `docker`, or
-  2. Use `pickUserDataDir` / `pickExtensionsDir`.
-- If extension installs differ across machines, check private extension registry entries.
-
-## Changelog
-
-See [CHANGELOG.md](./CHANGELOG.md) for release notes.
+## Install
+- VS Marketplace: https://marketplace.visualstudio.com/items?itemName=soloboi.solobois-settings-sync
+- Open VSX: https://open-vsx.org/extension/soloboi/solobois-settings-sync
