@@ -119,6 +119,20 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 { command: 'soloboisSettingsSync.showDockerPathInfo', title: 'Docker Environment Info' },
                 new vscode.ThemeIcon('server')
             ),
+            new SyncTreeItem(
+                'Check Marketplace Health',
+                'Check marketplace availability/status for extension IDs.',
+                vscode.TreeItemCollapsibleState.None,
+                { command: 'soloboisSettingsSync.checkExtensionHealth', title: 'Check Marketplace Health' },
+                new vscode.ThemeIcon('pulse')
+            ),
+            new SyncTreeItem(
+                'Run Settings E2E Test',
+                'Run isolated launch test to validate settings write/apply behavior.',
+                vscode.TreeItemCollapsibleState.None,
+                { command: 'soloboisSettingsSync.runSettingsE2ETest', title: 'Run Settings E2E Test' },
+                new vscode.ThemeIcon('beaker')
+            ),
         ];
     }
 

@@ -26,7 +26,7 @@ Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 - `Profile & Gist`: public/private toggle, set gist ID, switch profile, history restore
 - `Private Extensions`: register / auto-detect / upload VSIX
 - `Filters`: ignored extensions and ignored setting keys
-- `Experiments`: Docker path diagnostics
+- `Experiments`: Docker diagnostics, marketplace health check, settings E2E test
 - `Help`: Getting Started, open settings, path pickers, repo/issues, view log
 
 <details>
