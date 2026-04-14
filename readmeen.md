@@ -20,6 +20,15 @@ Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 3. On another machine, run `Soloboi's Settings Sync: Set Gist ID`
 4. Run `Soloboi's Settings Sync: Download Settings from Gist`
 
+## Sidebar Workflow
+- Open `Soloboi's Settings Sync` from the Activity Bar to access grouped actions.
+- `Sync`: Upload / Download / Sync Now / Diff / Share
+- `Profile & Gist`: public/private toggle, set gist ID, switch profile, history restore
+- `Private Extensions`: register / auto-detect / upload VSIX
+- `Filters`: ignored extensions and ignored setting keys
+- `Experiments`: Docker path diagnostics
+- `Help`: Getting Started, open settings, path pickers, repo/issues, view log
+
 <details>
 <summary>Details: User Manual</summary>
 
@@ -37,10 +46,23 @@ Back up, sync, and share your VS Code/Antigravity setup through GitHub Gist.
 - Creates a public/unlisted Gist link for sharing.
 - Uses masked snapshot flow for safer public distribution.
 
+### Profile & Gist Operations
+- Store separate `gistId`, `ignoredSettings`, and `ignoredExtensions` per profile.
+- Pick existing Sync Gists directly from the sidebar list and switch active target quickly.
+- Toggle default visibility (public/private) for newly created sync gists.
+
 ### Private Extensions
 - Register/remove: `registerPrivateExtension`, `removePrivateExtension`
 - Auto-detect: `autoDetectPrivateExtensions`
 - Upload VSIX to Gist: `uploadPrivateVsixToGist`
+
+### Advanced Sync Options (Settings)
+- `syncPreview`: show change summary before applying download
+- `gistTrust`: block extension install/uninstall from untrusted gists
+- `authoritativeDownload`: remove local-only keys not present in remote `settings.json`
+- `removeExtensions`: uninstall local extensions missing from remote list
+- `syncAntigravityConfig`: sync Antigravity-specific config files
+- `additionalFiles`: include arbitrary extra files in sync
 
 ### Frequent Commands
 - `soloboisSettingsSync.syncNow`

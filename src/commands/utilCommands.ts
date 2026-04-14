@@ -5,6 +5,7 @@ import { runGettingStartedWizard } from '../ui/gettingStarted';
 export function registerUtilCommands(context: vscode.ExtensionContext, ctx: AppContext): void {
     const {
         outputChannel,
+        logChannel,
         authManager
     } = ctx;
 
@@ -29,7 +30,8 @@ export function registerUtilCommands(context: vscode.ExtensionContext, ctx: AppC
             await vscode.env.openExternal(vscode.Uri.parse(issuesUrl));
         }),
         vscode.commands.registerCommand('soloboisSettingsSync.showLog', async () => {
-            outputChannel.show(true);
+            logChannel.show(true);
+            outputChannel.show(false);
         }),
         vscode.commands.registerCommand('soloboisSettingsSync.getStarted', async () => {
             await runGettingStartedWizard(context, authManager?.isLoggedIn() ?? false);
