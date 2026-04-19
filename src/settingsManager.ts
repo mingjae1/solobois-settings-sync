@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { isDeepStrictEqual } from 'util';
 import { sensitiveDataGuard } from './sensitiveDataGuard';
 import { SettingsPathResolver } from './settings/pathResolver';
 import { parseJsonc } from './utils';
@@ -34,6 +35,30 @@ export class SettingsManager {
             console.warn(`Soloboi's Settings Sync: Failed to read configuration key "${key}"`, err);
             return undefined;
         }
+    }
+
+    private stripDefaultSettingEntries(
+        settings: Record<string, unknown>
+    ): { sanitized: Record<string, unknown>; removedKeys: string[] } {
+        const sanitized: Record<string, unknown> = { ...settings };
+        const removedKeys: string[] = [];
+
+        for (const key of Object.keys(sanitized)) {
+            try {
+                const inspected = vscode.workspace.getConfiguration().inspect<unknown>(key);
+                if (inspected?.defaultValue === undefined) {
+                    continue;
+                }
+                if (isDeepStrictEqual(sanitized[key], inspected.defaultValue)) {
+                    delete sanitized[key];
+                    removedKeys.push(key);
+                }
+            } catch {
+                // If inspection fails for a key, keep the value as-is.
+            }
+        }
+
+        return { sanitized, removedKeys };
     }
 
     /**
@@ -137,8 +162,8 @@ export class SettingsManager {
 
     /**
      * Read local settings.json content as a string.
-     * Merges all installed extension settings (including defaults) so that
-     * the Gist always contains every extension configuration value.
+     * Uses only the settings explicitly present in settings.json,
+     * excluding values equal to current defaults.
      */
     readLocalSettings(): string | null {
         const filePath = this.getSettingsPath();
@@ -152,11 +177,8 @@ export class SettingsManager {
             return sensitiveDataGuard.redactJsonString(content, 'private').result;
         }
 
-        // Collect all extension configuration values (including defaults)
-        const extSettings = this.readAllExtensionSettings();
-
-        // Extension defaults first, then file settings override
-        const merged = { ...extSettings, ...fileObj };
+        const { sanitized } = this.stripDefaultSettingEntries(fileObj as Record<string, unknown>);
+        const merged = { ...sanitized };
 
         // Filter out ignored keys
         const ignored = this.getIgnoredPatterns();
@@ -599,7 +621,15 @@ export class SettingsManager {
             ? this.preserveIgnoredLocalSettings(localObj, remoteObj, ignored)
             : this.deepMerge(localObj, remoteObj);
 
-        this.writeFileIfChanged(filePath, JSON.stringify(nextSettings, null, 4));
+        const { sanitized, removedKeys } = this.stripDefaultSettingEntries(
+            nextSettings as Record<string, unknown>
+        );
+        if (removedKeys.length > 0) {
+            console.log(
+                `Soloboi's Settings Sync: Removed ${removedKeys.length} default-valued setting(s) during apply.`
+            );
+        }
+        this.writeFileIfChanged(filePath, JSON.stringify(sanitized, null, 4));
     }
 
     /**
