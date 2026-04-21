@@ -14,6 +14,21 @@ _다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
 </details>
 
 ---
+## [1.2.4] - 2026-04-22
+
+### Fixed
+- Excluded default-valued settings from the sync payload so only user-overridden values are uploaded.
+
+<details>
+<summary>한국어 (요약)</summary>
+
+
+
+</details>
+
+---
+
+---
 ## [1.2.2] - 2026-04-14
 
 ### Fixed
